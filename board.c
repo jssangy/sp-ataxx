@@ -32,19 +32,30 @@
 #define COLOR_GRID_INNER_G 80
 #define COLOR_GRID_INNER_B 80
 
-// 팀 이름 색상
+// 다양한 색상 팔레트
 #define COLOR_TEAM_R 255
 #define COLOR_TEAM_G 200
 #define COLOR_TEAM_B 0
 
-// 장식 색상
-#define COLOR_STAR_R 255
-#define COLOR_STAR_G 255
-#define COLOR_STAR_B 0
+#define COLOR_STAR1_R 255
+#define COLOR_STAR1_G 255
+#define COLOR_STAR1_B 0
 
-#define COLOR_FRAME_R 100
-#define COLOR_FRAME_G 100
-#define COLOR_FRAME_B 255
+#define COLOR_STAR2_R 255
+#define COLOR_STAR2_G 100
+#define COLOR_STAR2_B 200
+
+#define COLOR_GRADIENT1_R 100
+#define COLOR_GRADIENT1_G 50
+#define COLOR_GRADIENT1_B 255
+
+#define COLOR_GRADIENT2_R 50
+#define COLOR_GRADIENT2_G 255
+#define COLOR_GRADIENT2_B 100
+
+#define COLOR_PARTICLE_R 200
+#define COLOR_PARTICLE_G 100
+#define COLOR_PARTICLE_B 255
 
 // 전역 게임 보드
 char board[BOARD_SIZE][BOARD_SIZE];
@@ -52,7 +63,36 @@ char board[BOARD_SIZE][BOARD_SIZE];
 // LED Matrix 전역 변수
 struct RGBLedMatrix *matrix = NULL;
 struct LedCanvas *canvas = NULL;
-struct LedFont *font = NULL;
+
+// 5x7 대문자 폰트 (A-Z)
+const uint8_t font5x7[26][7] = {
+    {0x1E, 0x11, 0x1F, 0x11, 0x11, 0x00, 0x00}, // A
+    {0x1E, 0x11, 0x1E, 0x11, 0x1E, 0x00, 0x00}, // B
+    {0x0F, 0x10, 0x10, 0x10, 0x0F, 0x00, 0x00}, // C
+    {0x1E, 0x11, 0x11, 0x11, 0x1E, 0x00, 0x00}, // D
+    {0x1F, 0x10, 0x1E, 0x10, 0x1F, 0x00, 0x00}, // E
+    {0x1F, 0x10, 0x1E, 0x10, 0x10, 0x00, 0x00}, // F
+    {0x0F, 0x10, 0x13, 0x11, 0x0F, 0x00, 0x00}, // G
+    {0x11, 0x11, 0x1F, 0x11, 0x11, 0x00, 0x00}, // H
+    {0x0E, 0x04, 0x04, 0x04, 0x0E, 0x00, 0x00}, // I
+    {0x01, 0x01, 0x01, 0x11, 0x0E, 0x00, 0x00}, // J
+    {0x11, 0x12, 0x1C, 0x12, 0x11, 0x00, 0x00}, // K
+    {0x10, 0x10, 0x10, 0x10, 0x1F, 0x00, 0x00}, // L
+    {0x11, 0x1B, 0x15, 0x11, 0x11, 0x00, 0x00}, // M
+    {0x11, 0x19, 0x15, 0x13, 0x11, 0x00, 0x00}, // N
+    {0x0E, 0x11, 0x11, 0x11, 0x0E, 0x00, 0x00}, // O
+    {0x1E, 0x11, 0x1E, 0x10, 0x10, 0x00, 0x00}, // P
+    {0x0E, 0x11, 0x11, 0x15, 0x0E, 0x01, 0x00}, // Q
+    {0x1E, 0x11, 0x1E, 0x12, 0x11, 0x00, 0x00}, // R
+    {0x0F, 0x10, 0x0E, 0x01, 0x1E, 0x00, 0x00}, // S
+    {0x1F, 0x04, 0x04, 0x04, 0x04, 0x00, 0x00}, // T
+    {0x11, 0x11, 0x11, 0x11, 0x0E, 0x00, 0x00}, // U
+    {0x11, 0x11, 0x11, 0x0A, 0x04, 0x00, 0x00}, // V
+    {0x11, 0x11, 0x15, 0x1B, 0x11, 0x00, 0x00}, // W
+    {0x11, 0x0A, 0x04, 0x0A, 0x11, 0x00, 0x00}, // X
+    {0x11, 0x11, 0x0E, 0x04, 0x04, 0x00, 0x00}, // Y
+    {0x1F, 0x02, 0x04, 0x08, 0x1F, 0x00, 0x00}  // Z
+};
 
 // 콘솔에 팀 이름 표시
 void displayTeamName() {
@@ -79,16 +119,66 @@ void displayTeamName() {
     printf("\n");
 }
 
-// 별 그리기 함수
-void drawStar(int cx, int cy, int size) {
-    // 간단한 별 모양
-    for (int i = -size; i <= size; i++) {
-        led_canvas_set_pixel(canvas, cx + i, cy, COLOR_STAR_R, COLOR_STAR_G, COLOR_STAR_B);
-        led_canvas_set_pixel(canvas, cx, cy + i, COLOR_STAR_R, COLOR_STAR_G, COLOR_STAR_B);
+// LED 매트릭스에 글자 그리기 (manual)
+void drawTextManual(const char* text, int start_x, int start_y, int r, int g, int b) {
+    const int char_width = 5;
+    const int spacing = 1;
+
+    for (int i = 0; text[i] != '\0'; i++) {
+        char ch = text[i];
+        if (ch == ' ') {
+            continue;
+        }
+        if (ch >= 'A' && ch <= 'Z') {
+            int index = ch - 'A';
+            int x_offset = start_x + i * (char_width + spacing);
+            for (int y = 0; y < 7; y++) {
+                uint8_t row = font5x7[index][y];
+                for (int x = 0; x < char_width; x++) {
+                    if (row & (1 << (4 - x))) {
+                        led_canvas_set_pixel(canvas, x_offset + x, start_y + y, r, g, b);
+                    }
+                }
+            }
+        }
     }
-    for (int i = -size/2; i <= size/2; i++) {
-        led_canvas_set_pixel(canvas, cx + i, cy + i, COLOR_STAR_R, COLOR_STAR_G, COLOR_STAR_B);
-        led_canvas_set_pixel(canvas, cx + i, cy - i, COLOR_STAR_R, COLOR_STAR_G, COLOR_STAR_B);
+}
+
+// 작은 별 그리기
+void drawSmallStar(int cx, int cy, int r, int g, int b) {
+    led_canvas_set_pixel(canvas, cx, cy, r, g, b);
+    led_canvas_set_pixel(canvas, cx-1, cy, r, g, b);
+    led_canvas_set_pixel(canvas, cx+1, cy, r, g, b);
+    led_canvas_set_pixel(canvas, cx, cy-1, r, g, b);
+    led_canvas_set_pixel(canvas, cx, cy+1, r, g, b);
+}
+
+// 큰 별 그리기
+void drawBigStar(int cx, int cy, int r, int g, int b) {
+    led_canvas_set_pixel(canvas, cx, cy, r, g, b);
+    
+    for (int i = 1; i <= 3; i++) {
+        led_canvas_set_pixel(canvas, cx-i, cy, r, g, b);
+        led_canvas_set_pixel(canvas, cx+i, cy, r, g, b);
+        led_canvas_set_pixel(canvas, cx, cy-i, r, g, b);
+        led_canvas_set_pixel(canvas, cx, cy+i, r, g, b);
+    }
+    
+    for (int i = 1; i <= 2; i++) {
+        led_canvas_set_pixel(canvas, cx-i, cy-i, r/2, g/2, b/2);
+        led_canvas_set_pixel(canvas, cx+i, cy-i, r/2, g/2, b/2);
+        led_canvas_set_pixel(canvas, cx-i, cy+i, r/2, g/2, b/2);
+        led_canvas_set_pixel(canvas, cx+i, cy+i, r/2, g/2, b/2);
+    }
+}
+
+// 배경 파티클 효과
+void drawBackgroundParticles(int frame) {
+    for (int i = 0; i < 10; i++) {
+        int x = (frame * 2 + i * 7) % MATRIX_SIZE;
+        int y = (frame + i * 5) % MATRIX_SIZE;
+        led_canvas_set_pixel(canvas, x, y, 
+                           COLOR_PARTICLE_R/4, COLOR_PARTICLE_G/4, COLOR_PARTICLE_B/4);
     }
 }
 
@@ -96,88 +186,102 @@ void drawStar(int cx, int cy, int size) {
 void showTeamNameOnMatrix() {
     if (!canvas) return;
     
-    // 폰트 로드 시도
-    if (!font) {
-        font = load_font("/home/pi/rpi-rgb-led-matrix/fonts/7x13.bdf");
-        if (!font) {
-            printf("Warning: Could not load font file. Using fallback display.\n");
-        }
-    }
-    
-    // 깜빡이는 효과 - 3번 반복
-    for (int blink = 0; blink < 3; blink++) {
+    // 애니메이션 프레임
+    for (int frame = 0; frame < 180; frame++) {
         led_canvas_clear(canvas);
         
-        if (font) {
-            // 텍스트 표시
-            draw_text(canvas, font, 5, 32, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B, 
-                      "TEAM SHANNON", 0);
-        } else {
-            // 폰트 없이 색깔 블록으로 표시
-            for (int y = 25; y < 40; y++) {
-                for (int x = 8; x < 56; x++) {
-                    led_canvas_set_pixel(canvas, x, y, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
-                }
+        // 배경 그라데이션
+        for (int y = 0; y < MATRIX_SIZE; y++) {
+            int bg_intensity = (y * 30) / MATRIX_SIZE;
+            for (int x = 0; x < MATRIX_SIZE; x++) {
+                led_canvas_set_pixel(canvas, x, y, 
+                                   bg_intensity/3, 0, bg_intensity/2);
             }
         }
         
-        // 모서리 별 장식
-        drawStar(10, 10, 3);
-        drawStar(54, 10, 3);
-        drawStar(10, 54, 3);
-        drawStar(54, 54, 3);
+        // 배경 파티클
+        drawBackgroundParticles(frame);
         
-        // 프레임 (그라데이션 효과)
+        // TEAM SHANNON 텍스트 (깜빡임 효과)
+        if (frame < 60 || (frame >= 70 && frame < 130) || frame >= 140) {
+            drawTextManual("TEAM", 18, 18, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+            drawTextManual("SHANNON", 8, 28, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+        }
+        
+        // 회전하는 큰 별들 (모서리)
+        int star_offset = (frame % 20) < 10 ? 0 : 1;
+        drawBigStar(10 + star_offset, 10, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
+        drawBigStar(54 - star_offset, 10, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
+        drawBigStar(10 + star_offset, 54, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
+        drawBigStar(54 - star_offset, 54, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
+        
+        // 작은 별들 (움직이는 효과)
+        for (int i = 0; i < 8; i++) {
+            int star_x = (frame * 2 + i * 8) % MATRIX_SIZE;
+            int star_y = 5 + (i % 2) * 50;
+            drawSmallStar(star_x, star_y, 200, 200, 100);
+        }
+        
+        // 프레임 (무지개 효과)
         for (int x = 0; x < MATRIX_SIZE; x++) {
-            int gradient = (x * 255) / MATRIX_SIZE;
-            led_canvas_set_pixel(canvas, x, 0, gradient, gradient/2, 255);
-            led_canvas_set_pixel(canvas, x, MATRIX_SIZE-1, 255-gradient, (255-gradient)/2, 255);
-        }
-        for (int y = 1; y < MATRIX_SIZE-1; y++) {
-            int gradient = (y * 255) / MATRIX_SIZE;
-            led_canvas_set_pixel(canvas, 0, y, gradient, gradient/2, 255);
-            led_canvas_set_pixel(canvas, MATRIX_SIZE-1, y, 255-gradient, (255-gradient)/2, 255);
+            int rainbow = (x + frame) % 60;
+            int r = rainbow < 20 ? 255 : (rainbow < 40 ? 0 : 100);
+            int g = rainbow < 20 ? 0 : (rainbow < 40 ? 255 : 100);
+            int b = rainbow < 20 ? 100 : (rainbow < 40 ? 100 : 255);
+            
+            led_canvas_set_pixel(canvas, x, 0, r, g, b);
+            led_canvas_set_pixel(canvas, x, 1, r/2, g/2, b/2);
+            led_canvas_set_pixel(canvas, x, MATRIX_SIZE-1, r, g, b);
+            led_canvas_set_pixel(canvas, x, MATRIX_SIZE-2, r/2, g/2, b/2);
         }
         
-        usleep(500000); // 0.5초 켜짐
-        led_canvas_clear(canvas);
-        usleep(200000); // 0.2초 꺼짐
+        for (int y = 2; y < MATRIX_SIZE-2; y++) {
+            int rainbow = (y + frame) % 60;
+            int r = rainbow < 20 ? 255 : (rainbow < 40 ? 0 : 100);
+            int g = rainbow < 20 ? 0 : (rainbow < 40 ? 255 : 100);
+            int b = rainbow < 20 ? 100 : (rainbow < 40 ? 100 : 255);
+            
+            led_canvas_set_pixel(canvas, 0, y, r, g, b);
+            led_canvas_set_pixel(canvas, 1, y, r/2, g/2, b/2);
+            led_canvas_set_pixel(canvas, MATRIX_SIZE-1, y, r, g, b);
+            led_canvas_set_pixel(canvas, MATRIX_SIZE-2, y, r/2, g/2, b/2);
+        }
+        
+        usleep(16667); // 약 60fps
     }
     
-    // 최종 표시
+    // 최종 정적 이미지
     led_canvas_clear(canvas);
     
-    if (font) {
-        draw_text(canvas, font, 5, 32, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B, 
-                  "TEAM SHANNON", 0);
-    } else {
-        for (int y = 25; y < 40; y++) {
-            for (int x = 8; x < 56; x++) {
-                led_canvas_set_pixel(canvas, x, y, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
-            }
+    // 배경
+    for (int y = 0; y < MATRIX_SIZE; y++) {
+        int bg_intensity = (y * 30) / MATRIX_SIZE;
+        for (int x = 0; x < MATRIX_SIZE; x++) {
+            led_canvas_set_pixel(canvas, x, y, bg_intensity/3, 0, bg_intensity/2);
         }
     }
     
-    // 장식 유지
-    drawStar(10, 10, 3);
-    drawStar(54, 10, 3);
-    drawStar(10, 54, 3);
-    drawStar(54, 54, 3);
+    // 텍스트
+    drawTextManual("TEAM", 18, 18, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+    drawTextManual("SHANNON", 8, 28, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+    
+    // 별들
+    drawBigStar(10, 10, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
+    drawBigStar(54, 10, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
+    drawBigStar(10, 54, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
+    drawBigStar(54, 54, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
     
     // 프레임
     for (int x = 0; x < MATRIX_SIZE; x++) {
-        int gradient = (x * 255) / MATRIX_SIZE;
-        led_canvas_set_pixel(canvas, x, 0, gradient, gradient/2, 255);
-        led_canvas_set_pixel(canvas, x, MATRIX_SIZE-1, 255-gradient, (255-gradient)/2, 255);
+        led_canvas_set_pixel(canvas, x, 0, 100, 100, 255);
+        led_canvas_set_pixel(canvas, x, MATRIX_SIZE-1, 100, 100, 255);
     }
-    for (int y = 1; y < MATRIX_SIZE-1; y++) {
-        int gradient = (y * 255) / MATRIX_SIZE;
-        led_canvas_set_pixel(canvas, 0, y, gradient, gradient/2, 255);
-        led_canvas_set_pixel(canvas, MATRIX_SIZE-1, y, 255-gradient, (255-gradient)/2, 255);
+    for (int y = 0; y < MATRIX_SIZE; y++) {
+        led_canvas_set_pixel(canvas, 0, y, 100, 100, 255);
+        led_canvas_set_pixel(canvas, MATRIX_SIZE-1, y, 100, 100, 255);
     }
     
-    // 2초간 표시
-    usleep(2000000);
+    usleep(1000000); // 1초간 유지
 }
 
 // LED Matrix 초기화
@@ -188,7 +292,6 @@ int initLEDMatrix() {
     memset(&options, 0, sizeof(options));
     memset(&rt_options, 0, sizeof(rt_options));
     
-    // 64x64 매트릭스 설정
     options.rows = 64;
     options.cols = 64;
     options.chain_length = 1;
@@ -211,44 +314,42 @@ int initLEDMatrix() {
     return 0;
 }
 
-// 그리드 라인 그리기 (가장자리 1픽셀, 내부 2픽셀)
+// 그리드 라인 그리기 (지정된 위치에)
 void drawGridLines() {
+    // 그리드 위치: 0,7,8,15,16,23,24,31,32,39,40,47,48,55,56,63
+    int grid_positions[] = {0, 7, 8, 15, 16, 23, 24, 31, 32, 39, 40, 47, 48, 55, 56, 63};
+    int num_positions = sizeof(grid_positions) / sizeof(grid_positions[0]);
+    
     // 가로선 그리기
-    for (int i = 0; i <= BOARD_SIZE; i++) {
-        int y = i * CELL_SIZE;
+    for (int i = 0; i < num_positions; i++) {
+        int y = grid_positions[i];
         
-        if (i == 0 || i == BOARD_SIZE) {
-            // 가장자리는 1픽셀
+        // 가장자리 (0, 63)는 1픽셀
+        if (y == 0 || y == 63) {
             for (int x = 0; x < MATRIX_SIZE; x++) {
                 led_canvas_set_pixel(canvas, x, y, COLOR_GRID_OUTER_R, COLOR_GRID_OUTER_G, COLOR_GRID_OUTER_B);
             }
         } else {
-            // 내부는 2픽셀
+            // 내부는 더 밝은 색
             for (int x = 0; x < MATRIX_SIZE; x++) {
                 led_canvas_set_pixel(canvas, x, y, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
-                if (y < MATRIX_SIZE - 1) {
-                    led_canvas_set_pixel(canvas, x, y + 1, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
-                }
             }
         }
     }
     
     // 세로선 그리기
-    for (int i = 0; i <= BOARD_SIZE; i++) {
-        int x = i * CELL_SIZE;
+    for (int i = 0; i < num_positions; i++) {
+        int x = grid_positions[i];
         
-        if (i == 0 || i == BOARD_SIZE) {
-            // 가장자리는 1픽셀
+        // 가장자리 (0, 63)는 1픽셀
+        if (x == 0 || x == 63) {
             for (int y = 0; y < MATRIX_SIZE; y++) {
                 led_canvas_set_pixel(canvas, x, y, COLOR_GRID_OUTER_R, COLOR_GRID_OUTER_G, COLOR_GRID_OUTER_B);
             }
         } else {
-            // 내부는 2픽셀
+            // 내부는 더 밝은 색
             for (int y = 0; y < MATRIX_SIZE; y++) {
                 led_canvas_set_pixel(canvas, x, y, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
-                if (x < MATRIX_SIZE - 1) {
-                    led_canvas_set_pixel(canvas, x + 1, y, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
-                }
             }
         }
     }
@@ -258,29 +359,12 @@ void drawGridLines() {
 void drawPiece(int row, int col, char piece) {
     if (piece == '.') return; // 빈 공간은 아무것도 그리지 않음
     
-    // 셀의 시작 위치 계산
-    int cell_start_x = col * CELL_SIZE;
-    int cell_start_y = row * CELL_SIZE;
+    // 각 셀의 시작 위치 계산
+    int cell_x_starts[] = {1, 9, 17, 25, 33, 41, 49, 57};
+    int cell_y_starts[] = {1, 9, 17, 25, 33, 41, 49, 57};
     
-    // 6x6 영역의 시작 위치
-    int start_x, start_y;
-    
-    // 가장자리 셀인지 확인하여 오프셋 계산
-    if (row == 0) {
-        start_y = cell_start_y + 1;
-    } else if (row == BOARD_SIZE - 1) {
-        start_y = cell_start_y + 1;
-    } else {
-        start_y = cell_start_y + 2;
-    }
-    
-    if (col == 0) {
-        start_x = cell_start_x + 1;
-    } else if (col == BOARD_SIZE - 1) {
-        start_x = cell_start_x + 1;
-    } else {
-        start_x = cell_start_x + 2;
-    }
+    int start_x = cell_x_starts[col];
+    int start_y = cell_y_starts[row];
     
     // 색상 결정
     int r, g, b;
@@ -312,13 +396,9 @@ void drawPiece(int row, int col, char piece) {
 void displayBoardOnMatrix() {
     if (!canvas) return;
     
-    // 배경 지우기
     led_canvas_clear(canvas);
-    
-    // 그리드 라인 그리기
     drawGridLines();
     
-    // 각 말 그리기
     for (int row = 0; row < BOARD_SIZE; row++) {
         for (int col = 0; col < BOARD_SIZE; col++) {
             drawPiece(row, col, board[row][col]);
@@ -439,9 +519,6 @@ int main() {
     }
     
     // 정리
-    if (font) {
-        delete_font(font);
-    }
     if (matrix) {
         led_matrix_delete(matrix);
     }
