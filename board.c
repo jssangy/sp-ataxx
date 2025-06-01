@@ -98,9 +98,10 @@ void drawTextManual(const char* text, int start_x, int start_y, int r, int g, in
 // 그리드 선 그리기
 void drawGridLines() {
     for (int i = 0; i <= MATRIX_SIZE; i += CELL_SIZE) {
+        int pos = (i >= MATRIX_SIZE) ? (MATRIX_SIZE - 1) : i;
         for (int j = 0; j < MATRIX_SIZE; j++) {
-            led_canvas_set_pixel(canvas, i, j, COLOR_GRID_R, COLOR_GRID_G, COLOR_GRID_B);
-            led_canvas_set_pixel(canvas, j, i, COLOR_GRID_R, COLOR_GRID_G, COLOR_GRID_B);
+            led_canvas_set_pixel(canvas, pos, j, COLOR_GRID_R, COLOR_GRID_G, COLOR_GRID_B);
+            led_canvas_set_pixel(canvas, j, pos, COLOR_GRID_R, COLOR_GRID_G, COLOR_GRID_B);
         }
     }
 }
