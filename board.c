@@ -3,6 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <getopt.h>
 #include "led-matrix-c.h"
 
 #define BOARD_SIZE 8
@@ -39,6 +40,20 @@ volatile sig_atomic_t interrupt_received = 0;
 // 시그널 핸들러
 static void InterruptHandler(int signo) {
     interrupt_received = 1;
+}
+
+// 사용법 출력
+void print_usage(const char *prog_name) {
+    printf("Usage: sudo %s [options]\n", prog_name);
+    printf("Options:\n");
+    printf("  -h, --help              : Show this help\n");
+    printf("  -b, --brightness <1-100>: Set brightness (default: 50)\n");
+    printf("  -g, --gpio-slowdown <0-4>: GPIO slowdown (default: 4)\n");
+    printf("  --no-hardware-pulse     : Don't use hardware pulse\n");
+    printf("  --no-drop-privs         : Don't drop privileges\n");
+    printf("\n");
+    printf("Note: This program requires sudo privileges to access GPIO.\n");
+    printf("Example: sudo %s -b 75\n", prog_name);
 }
 
 // 격자선 그리기
@@ -179,6 +194,61 @@ void print_board(char board[BOARD_SIZE][BOARD_SIZE]) {
 }
 
 int main(int argc, char *argv[]) {
+    // 기본 옵션 값
+    int brightness = 50;
+    int gpio_slowdown = 4;
+    int use_hardware_pulse = 1;
+    int drop_privileges = 1;
+    
+    // 명령줄 옵션 파싱
+    static struct option long_options[] = {
+        {"help", no_argument, 0, 'h'},
+        {"brightness", required_argument, 0, 'b'},
+        {"gpio-slowdown", required_argument, 0, 'g'},
+        {"no-hardware-pulse", no_argument, 0, 'n'},
+        {"no-drop-privs", no_argument, 0, 'd'},
+        {0, 0, 0, 0}
+    };
+    
+    int opt;
+    while ((opt = getopt_long(argc, argv, "hb:g:", long_options, NULL)) != -1) {
+        switch (opt) {
+            case 'h':
+                print_usage(argv[0]);
+                return 0;
+            case 'b':
+                brightness = atoi(optarg);
+                if (brightness < 1 || brightness > 100) {
+                    fprintf(stderr, "Brightness must be between 1 and 100\n");
+                    return 1;
+                }
+                break;
+            case 'g':
+                gpio_slowdown = atoi(optarg);
+                if (gpio_slowdown < 0 || gpio_slowdown > 4) {
+                    fprintf(stderr, "GPIO slowdown must be between 0 and 4\n");
+                    return 1;
+                }
+                break;
+            case 'n':
+                use_hardware_pulse = 0;
+                break;
+            case 'd':
+                drop_privileges = 0;
+                break;
+            default:
+                print_usage(argv[0]);
+                return 1;
+        }
+    }
+    
+    // Root 권한 확인
+    if (geteuid() != 0) {
+        fprintf(stderr, "Error: This program requires root privileges.\n");
+        fprintf(stderr, "Please run with sudo: sudo %s\n", argv[0]);
+        return 1;
+    }
+    
     // LED Matrix 옵션 설정
     struct RGBLedMatrixOptions options;
     struct RGBLedRuntimeOptions rt_options;
@@ -191,28 +261,56 @@ int main(int argc, char *argv[]) {
     options.chain_length = 1;
     options.parallel = 1;
     options.hardware_mapping = "regular";
-    options.brightness = 50;
+    options.brightness = brightness;
+    options.disable_hardware_pulsing = !use_hardware_pulse;
     
-    rt_options.gpio_slowdown = 4;
-    rt_options.drop_privileges = 1;
+    rt_options.gpio_slowdown = gpio_slowdown;
+    rt_options.drop_privileges = drop_privileges;
     
     // 시그널 핸들러 설정
     signal(SIGTERM, InterruptHandler);
     signal(SIGINT, InterruptHandler);
     
     // LED Matrix 생성
+    printf("Initializing LED Matrix...\n");
+    printf("Options: brightness=%d, gpio_slowdown=%d, hardware_pulse=%s, drop_privs=%s\n",
+           brightness, gpio_slowdown, 
+           use_hardware_pulse ? "yes" : "no",
+           drop_privileges ? "yes" : "no");
+    
     matrix = led_matrix_create_from_options_and_rt_options(&options, &rt_options);
     if (matrix == NULL) {
         fprintf(stderr, "Error: Failed to create LED matrix\n");
-        fprintf(stderr, "Make sure to run with sudo\n");
+        fprintf(stderr, "Possible solutions:\n");
+        fprintf(stderr, "1. Make sure you're running with sudo\n");
+        fprintf(stderr, "2. Try with --no-hardware-pulse option\n");
+        fprintf(stderr, "3. Try with --no-drop-privs option\n");
+        fprintf(stderr, "4. Check GPIO connections\n");
         return 1;
     }
     
     canvas = led_matrix_get_canvas(matrix);
     
-    printf("=== OctaFlip LED Matrix Display ===\n");
-    printf("64x64 LED Panel initialized\n");
+    printf("\n=== OctaFlip LED Matrix Display ===\n");
+    printf("64x64 LED Panel initialized successfully!\n");
     printf("Press Ctrl+C to exit\n\n");
+    
+    // 초기 화면 표시 (테스트 패턴)
+    printf("Showing test pattern...\n");
+    led_canvas_clear(canvas);
+    
+    // 테스트 패턴: 네 모서리에 색상 표시
+    for (int y = 0; y < 8; y++) {
+        for (int x = 0; x < 8; x++) {
+            led_canvas_set_pixel(canvas, x, y, 255, 0, 0);          // 좌상단: 빨강
+            led_canvas_set_pixel(canvas, 56+x, y, 0, 255, 0);      // 우상단: 초록
+            led_canvas_set_pixel(canvas, x, 56+y, 0, 0, 255);      // 좌하단: 파랑
+            led_canvas_set_pixel(canvas, 56+x, 56+y, 255, 255, 0); // 우하단: 노랑
+        }
+    }
+    
+    printf("Test pattern displayed. Press Enter to continue...\n");
+    getchar();
     
     // 보드 상태 저장용 배열
     char board[BOARD_SIZE][BOARD_SIZE];
@@ -248,6 +346,7 @@ int main(int argc, char *argv[]) {
     printf("\nCleaning up...\n");
     led_canvas_clear(canvas);
     led_matrix_delete(matrix);
+    printf("Goodbye!\n");
     
     return 0;
 }
