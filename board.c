@@ -3,7 +3,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
-#include "led-matrix-c.h"
+#include "./include/led-matrix-c.h"
 
 #define BOARD_SIZE 8
 #define CELL_SIZE 8
