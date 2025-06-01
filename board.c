@@ -142,7 +142,7 @@ void showTeamNameOnMatrix() {
         if (text[i] != ' ') {
             for (int px = 0; px < 4; px++) {
                 for (int py = 0; py < 7; py++) {
-                    led_canvas_set_pixel(canvas, x_offset + px, y_offset + py, r, g, b);
+                    led_canvas_draw_text(canvas, x_offset + px, y_offset + py, r, g, b);
                 }
             }
         }
