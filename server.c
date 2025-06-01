@@ -21,6 +21,7 @@
 #define BLOCKED '#'
 #define MAX_PLAYERS 2
 #define TIMEOUT_SECONDS 5  
+#define HUMAN_TIMEOUT_SECONDS 60  // 1 minute for human players
 #define BUFFER_SIZE 4096
 
 // Move types
@@ -33,6 +34,7 @@ typedef struct {
     int sockfd;
     char color;
     int connected;
+    int timeout_seconds;  // Per-player timeout
 } Player;
 
 // Game state
@@ -58,7 +60,7 @@ void initializeLog();
 void logBoardState(const char* event);
 void logMove(const char* player, int sx, int sy, int tx, int ty, const char* result);
 void sendJSON(int sockfd, cJSON* json);
-void handleRegister(int clientfd, const char* username);
+void handleRegister(int clientfd, const char* username, const char* mode);
 void handleMove(int clientfd, const char* username, int sx, int sy, int tx, int ty);
 void broadcastGameStart();
 void sendYourTurn(int player_idx);
@@ -199,8 +201,8 @@ void sendJSON(int sockfd, cJSON* json) {
 }
 
 // Handle register request
-void handleRegister(int clientfd, const char* username) {
-    printf("Registration request from %s (fd=%d)\n", username, clientfd);
+void handleRegister(int clientfd, const char* username, const char* mode) {
+    printf("Registration request from %s (fd=%d, mode=%s)\n", username, clientfd, mode ? mode : "ai");
     
     cJSON* response = cJSON_CreateObject();
     if (!response) return;
@@ -231,18 +233,30 @@ void handleRegister(int clientfd, const char* username) {
         game.players[game.num_players].sockfd = clientfd;
         game.players[game.num_players].color = (game.num_players == 0) ? RED : BLUE;
         game.players[game.num_players].connected = 1;
+        
+        // Set timeout based on mode
+        if (mode && strcmp(mode, "human") == 0) {
+            game.players[game.num_players].timeout_seconds = HUMAN_TIMEOUT_SECONDS;
+        } else {
+            game.players[game.num_players].timeout_seconds = TIMEOUT_SECONDS;
+        }
+        
         game.num_players++;
         
         cJSON_AddStringToObject(response, "type", "register_ack");
         sendJSON(clientfd, response);
         cJSON_Delete(response);
         
-        printf("Player %s registered as %c (total: %d)\n", username, 
-               game.players[game.num_players-1].color, game.num_players);
+        printf("Player %s registered as %c (timeout: %ds, total: %d)\n", username, 
+               game.players[game.num_players-1].color, 
+               game.players[game.num_players-1].timeout_seconds, 
+               game.num_players);
         
         if (logFile) {
-            fprintf(logFile, "Player %s registered as %c\n", username, 
-                    game.players[game.num_players-1].color);
+            fprintf(logFile, "Player %s registered as %c (mode: %s, timeout: %ds)\n", username, 
+                    game.players[game.num_players-1].color,
+                    mode ? mode : "ai",
+                    game.players[game.num_players-1].timeout_seconds);
             fflush(logFile);
         }
         
@@ -305,7 +319,7 @@ void sendYourTurn(int player_idx) {
     
     cJSON_AddStringToObject(message, "type", "your_turn");
     cJSON_AddItemToObject(message, "board", board_json);
-    cJSON_AddNumberToObject(message, "timeout", TIMEOUT_SECONDS);
+    cJSON_AddNumberToObject(message, "timeout", game.players[player_idx].timeout_seconds);
     
     if (game.players[player_idx].connected) {
         sendJSON(game.players[player_idx].sockfd, message);
@@ -719,6 +733,11 @@ int main(int argc, char *argv[]) {
     initializeBoard();
     initializeLog();
     
+    // Initialize player timeouts to default
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        game.players[i].timeout_seconds = TIMEOUT_SECONDS;
+    }
+    
     // Set up socket
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
@@ -780,8 +799,11 @@ int main(int argc, char *argv[]) {
         // Check for timeout
         if (game.game_started && !game.game_over) {
             time_t current_time = time(NULL);
-            if (current_time - game.last_move_time >= TIMEOUT_SECONDS) {
-                printf("Timeout for player %s\n", game.players[game.current_player].username);
+            int current_timeout = game.players[game.current_player].timeout_seconds;
+            
+            if (current_time - game.last_move_time >= current_timeout) {
+                printf("Timeout for player %s (after %d seconds)\n", 
+                       game.players[game.current_player].username, current_timeout);
                 
                 logMove(game.players[game.current_player].username, 0, 0, 0, 0, "Timeout - forced pass");
                 
@@ -852,8 +874,10 @@ int main(int argc, char *argv[]) {
                                     if (type && cJSON_IsString(type)) {
                                         if (strcmp(type->valuestring, "register") == 0) {
                                             cJSON* username = cJSON_GetObjectItem(json, "username");
+                                            cJSON* mode = cJSON_GetObjectItem(json, "mode");
                                             if (username && cJSON_IsString(username)) {
-                                                handleRegister(i, username->valuestring);
+                                                const char* mode_str = (mode && cJSON_IsString(mode)) ? mode->valuestring : "ai";
+                                                handleRegister(i, username->valuestring, mode_str);
                                             }
                                         } else if (strcmp(type->valuestring, "move") == 0) {
                                             cJSON* username = cJSON_GetObjectItem(json, "username");
