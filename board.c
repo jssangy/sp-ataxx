@@ -470,8 +470,6 @@ void setExampleBoard() {
 
 // 메인 함수
 int main() {
-    // 팀 이름 표시
-    displayTeamName();
     
     // LED 매트릭스 초기화
     printf("LED 매트릭스 초기화 중...\n");
