@@ -2,187 +2,266 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <signal.h>
-#include <getopt.h>
+#include <time.h>
 #include "led-matrix-c.h"
 
 #define BOARD_SIZE 8
 #define CELL_SIZE 8
 #define PIECE_SIZE 6
-#define PIECE_OFFSET 1
+#define MATRIX_SIZE 64
 
 // 색상 정의
-#define RED_R 255
-#define RED_G 0
-#define RED_B 0
+#define COLOR_RED_R 255
+#define COLOR_RED_G 0
+#define COLOR_RED_B 0
 
-#define BLUE_R 0
-#define BLUE_G 0
-#define BLUE_B 255
+#define COLOR_BLUE_R 0
+#define COLOR_BLUE_G 0
+#define COLOR_BLUE_B 255
 
-#define EMPTY_R 0
-#define EMPTY_G 0
-#define EMPTY_B 0
+#define COLOR_EMPTY_R 30
+#define COLOR_EMPTY_G 30
+#define COLOR_EMPTY_B 30
 
-#define BLOCKED_R 64
-#define BLOCKED_G 64
-#define BLOCKED_B 64
+#define COLOR_BLOCKED_R 100
+#define COLOR_BLOCKED_G 100
+#define COLOR_BLOCKED_B 100
 
-#define GRID_R 128
-#define GRID_G 128
-#define GRID_B 128
+#define COLOR_GRID_R 50
+#define COLOR_GRID_G 50
+#define COLOR_GRID_B 50
 
-// 전역 변수
+#define COLOR_BG_R 0
+#define COLOR_BG_G 0
+#define COLOR_BG_B 0
+
+// 팀 이름 색상 (그라디언트 효과)
+#define COLOR_TEAM1_R 255
+#define COLOR_TEAM1_G 100
+#define COLOR_TEAM1_B 0
+
+#define COLOR_TEAM2_R 255
+#define COLOR_TEAM2_G 200
+#define COLOR_TEAM2_B 0
+
+// 게임 보드 전역 변수
+char board[BOARD_SIZE][BOARD_SIZE];
+
+// LED Matrix 관련 전역 변수
 struct RGBLedMatrix *matrix = NULL;
 struct LedCanvas *canvas = NULL;
-volatile sig_atomic_t interrupt_received = 0;
 
-// 시그널 핸들러
-static void InterruptHandler(int signo) {
-    interrupt_received = 1;
-}
-
-// 사용법 출력
-void print_usage(const char *prog_name) {
-    printf("Usage: sudo %s [options]\n", prog_name);
-    printf("Options:\n");
-    printf("  -h, --help              : Show this help\n");
-    printf("  -b, --brightness <1-100>: Set brightness (default: 50)\n");
-    printf("  -g, --gpio-slowdown <0-4>: GPIO slowdown (default: 4)\n");
-    printf("  --no-hardware-pulse     : Don't use hardware pulse\n");
-    printf("  --no-drop-privs         : Don't drop privileges\n");
+// 팀 이름 표시 함수
+void displayTeamName() {
     printf("\n");
-    printf("Note: This program requires sudo privileges to access GPIO.\n");
-    printf("Example: sudo %s -b 75\n", prog_name);
+    printf("╔═══════════════════════════════════════════════════════════════╗\n");
+    printf("║                                                               ║\n");
+    printf("║  ████████╗███████╗ █████╗ ███╗   ███╗                        ║\n");
+    printf("║  ╚══██╔══╝██╔════╝██╔══██╗████╗ ████║                        ║\n");
+    printf("║     ██║   █████╗  ███████║██╔████╔██║                        ║\n");
+    printf("║     ██║   ██╔══╝  ██╔══██║██║╚██╔╝██║                        ║\n");
+    printf("║     ██║   ███████╗██║  ██║██║ ╚═╝ ██║                        ║\n");
+    printf("║     ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝                        ║\n");
+    printf("║                                                               ║\n");
+    printf("║  ███████╗██╗  ██╗ █████╗ ███╗   ██╗███╗   ██╗ ██████╗ ███╗   ██╗║\n");
+    printf("║  ██╔════╝██║  ██║██╔══██╗████╗  ██║████╗  ██║██╔═══██╗████╗  ██║║\n");
+    printf("║  ███████╗███████║███████║██╔██╗ ██║██╔██╗ ██║██║   ██║██╔██╗ ██║║\n");
+    printf("║  ╚════██║██╔══██║██╔══██║██║╚██╗██║██║╚██╗██║██║   ██║██║╚██╗██║║\n");
+    printf("║  ███████║██║  ██║██║  ██║██║ ╚████║██║ ╚████║╚██████╔╝██║ ╚████║║\n");
+    printf("║  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝║\n");
+    printf("║                                                               ║\n");
+    printf("║                    🎮 OctaFlip LED Display 🎮                 ║\n");
+    printf("║                                                               ║\n");
+    printf("╚═══════════════════════════════════════════════════════════════╝\n");
+    printf("\n");
 }
 
-// 격자선 그리기
-void draw_grid(struct LedCanvas *canvas) {
-    // 수평선 그리기 (0, 8, 16, ..., 64)
-    for (int y = 0; y <= 64; y += CELL_SIZE) {
-        for (int x = 0; x < 64; x++) {
-            led_canvas_set_pixel(canvas, x, y, GRID_R, GRID_G, GRID_B);
-        }
-    }
+// LED 매트릭스에 팀 이름 표시 (애니메이션)
+void showTeamNameOnMatrix() {
+    if (!canvas) return;
     
-    // 수직선 그리기 (0, 8, 16, ..., 64)
-    for (int x = 0; x <= 64; x += CELL_SIZE) {
-        for (int y = 0; y < 64; y++) {
-            led_canvas_set_pixel(canvas, x, y, GRID_R, GRID_G, GRID_B);
-        }
-    }
-}
-
-// 말 그리기 (6x6 픽셀)
-void draw_piece(struct LedCanvas *canvas, int row, int col, char piece) {
-    int start_x = col * CELL_SIZE + PIECE_OFFSET;
-    int start_y = row * CELL_SIZE + PIECE_OFFSET;
-    
-    uint8_t r = 0, g = 0, b = 0;
-    
-    switch (piece) {
-        case 'R':
-            r = RED_R; g = RED_G; b = RED_B;
-            break;
-        case 'B':
-            r = BLUE_R; g = BLUE_G; b = BLUE_B;
-            break;
-        case '.':
-            r = EMPTY_R; g = EMPTY_G; b = EMPTY_B;
-            break;
-        case '#':
-            r = BLOCKED_R; g = BLOCKED_G; b = BLOCKED_B;
-            break;
-        default:
-            return;
-    }
-    
-    // 6x6 픽셀 영역 채우기
-    for (int y = 0; y < PIECE_SIZE; y++) {
-        for (int x = 0; x < PIECE_SIZE; x++) {
-            led_canvas_set_pixel(canvas, start_x + x, start_y + y, r, g, b);
-        }
-    }
-    
-    // 빈 칸인 경우 작은 점을 중앙에 표시 (선택사항)
-    if (piece == '.') {
-        int center_x = start_x + PIECE_SIZE / 2;
-        int center_y = start_y + PIECE_SIZE / 2;
-        led_canvas_set_pixel(canvas, center_x, center_y, 32, 32, 32);
-    }
-}
-
-// 보드 상태 그리기
-void draw_board(struct LedCanvas *canvas, char board[BOARD_SIZE][BOARD_SIZE]) {
-    // 먼저 캔버스를 검은색으로 지우기
     led_canvas_clear(canvas);
     
-    // 격자선 그리기
-    draw_grid(canvas);
+    // 간단한 "TEAM SHANNON" 텍스트를 픽셀로 표시
+    const char* text = "TEAM SHANNON";
+    int text_len = strlen(text);
+    int start_x = 5;
+    int y = 28;
     
-    // 각 셀에 말 그리기
-    for (int row = 0; row < BOARD_SIZE; row++) {
-        for (int col = 0; col < BOARD_SIZE; col++) {
-            draw_piece(canvas, row, col, board[row][col]);
-        }
-    }
-}
-
-// 보드 입력 받기
-int read_board_input(char board[BOARD_SIZE][BOARD_SIZE]) {
-    printf("Please enter the 8x8 board state:\n");
-    printf("Use R for Red, B for Blue, . for Empty, # for Blocked\n");
-    printf("Enter 8 lines with 8 characters each:\n\n");
-    
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        char line[256];
-        printf("Row %d: ", i + 1);
-        
-        if (fgets(line, sizeof(line), stdin) == NULL) {
-            printf("Error reading input\n");
-            return 0;
-        }
-        
-        // 개행 문자 제거
-        line[strcspn(line, "\n")] = '\0';
-        
-        // 입력 검증
-        if (strlen(line) != BOARD_SIZE) {
-            printf("Error: Row must have exactly %d characters\n", BOARD_SIZE);
-            i--; // 다시 입력받기
-            continue;
-        }
-        
-        // 유효한 문자인지 확인
-        int valid = 1;
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            if (line[j] != 'R' && line[j] != 'B' && 
-                line[j] != '.' && line[j] != '#') {
-                printf("Error: Invalid character '%c'. Use only R, B, ., or #\n", line[j]);
-                valid = 0;
-                break;
+    // 깜빡이는 효과
+    for (int blink = 0; blink < 3; blink++) {
+        // 텍스트 표시
+        for (int i = 0; i < text_len; i++) {
+            int x = start_x + i * 5;
+            // 간단한 블록 문자로 표시
+            for (int px = 0; px < 4; px++) {
+                for (int py = 0; py < 7; py++) {
+                    int r = COLOR_TEAM1_R - (i * 10);
+                    int g = COLOR_TEAM1_G + (i * 10);
+                    int b = COLOR_TEAM1_B;
+                    led_canvas_set_pixel(canvas, x + px, y + py, r, g, b);
+                }
             }
         }
         
-        if (!valid) {
-            i--; // 다시 입력받기
-            continue;
+        // 장식 프레임
+        for (int x = 0; x < MATRIX_SIZE; x++) {
+            led_canvas_set_pixel(canvas, x, 0, 100, 100, 255);
+            led_canvas_set_pixel(canvas, x, MATRIX_SIZE-1, 100, 100, 255);
+        }
+        for (int y = 0; y < MATRIX_SIZE; y++) {
+            led_canvas_set_pixel(canvas, 0, y, 100, 100, 255);
+            led_canvas_set_pixel(canvas, MATRIX_SIZE-1, y, 100, 100, 255);
         }
         
-        // 보드에 복사
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            board[i][j] = line[j];
+        usleep(500000); // 0.5초
+        led_canvas_clear(canvas);
+        usleep(200000); // 0.2초
+    }
+}
+
+// LED 매트릭스 초기화
+int initLEDMatrix() {
+    struct RGBLedMatrixOptions options;
+    struct RGBLedRuntimeOptions rt_options;
+    
+    memset(&options, 0, sizeof(options));
+    memset(&rt_options, 0, sizeof(rt_options));
+    
+    // 64x64 매트릭스 설정
+    options.rows = 64;
+    options.cols = 64;
+    options.chain_length = 1;
+    options.parallel = 1;
+    options.hardware_mapping = "regular";
+    options.brightness = 80;
+    
+    rt_options.gpio_slowdown = 4;
+    rt_options.drop_privileges = 1;
+    
+    matrix = led_matrix_create_from_options_and_rt_options(&options, &rt_options);
+    
+    if (matrix == NULL) {
+        fprintf(stderr, "Error: Failed to create LED matrix\n");
+        return -1;
+    }
+    
+    canvas = led_matrix_get_canvas(matrix);
+    return 0;
+}
+
+// 그리드 라인 그리기
+void drawGridLines() {
+    // 가로선 그리기 (0, 8, 16, ..., 64)
+    for (int i = 0; i <= BOARD_SIZE; i++) {
+        int y = i * CELL_SIZE;
+        for (int x = 0; x < MATRIX_SIZE; x++) {
+            led_canvas_set_pixel(canvas, x, y, COLOR_GRID_R, COLOR_GRID_G, COLOR_GRID_B);
         }
     }
     
-    return 1;
+    // 세로선 그리기 (0, 8, 16, ..., 64)
+    for (int i = 0; i <= BOARD_SIZE; i++) {
+        int x = i * CELL_SIZE;
+        for (int y = 0; y < MATRIX_SIZE; y++) {
+            led_canvas_set_pixel(canvas, x, y, COLOR_GRID_R, COLOR_GRID_G, COLOR_GRID_B);
+        }
+    }
 }
 
-// 보드 출력 (콘솔)
-void print_board(char board[BOARD_SIZE][BOARD_SIZE]) {
-    printf("\nCurrent Board:\n");
-    printf("  1 2 3 4 5 6 7 8\n");
+// 피스 그리기 함수
+void drawPiece(int row, int col, char piece) {
+    // 셀의 시작 위치 계산
+    int start_x = col * CELL_SIZE + 1;  // +1은 경계선 때문
+    int start_y = row * CELL_SIZE + 1;
     
+    // 색상 결정
+    int r, g, b;
+    switch(piece) {
+        case 'R':
+            r = COLOR_RED_R;
+            g = COLOR_RED_G;
+            b = COLOR_RED_B;
+            break;
+        case 'B':
+            r = COLOR_BLUE_R;
+            g = COLOR_BLUE_G;
+            b = COLOR_BLUE_B;
+            break;
+        case '.':
+            r = COLOR_EMPTY_R;
+            g = COLOR_EMPTY_G;
+            b = COLOR_EMPTY_B;
+            break;
+        case '#':
+            r = COLOR_BLOCKED_R;
+            g = COLOR_BLOCKED_G;
+            b = COLOR_BLOCKED_B;
+            break;
+        default:
+            r = g = b = 0;
+    }
+    
+    // 6x6 피스 그리기
+    for (int py = 0; py < PIECE_SIZE; py++) {
+        for (int px = 0; px < PIECE_SIZE; px++) {
+            int x = start_x + px;
+            int y = start_y + py;
+            
+            // 피스별 특별한 패턴 추가
+            if (piece == 'R') {
+                // Red 피스는 원형으로
+                int cx = PIECE_SIZE / 2;
+                int cy = PIECE_SIZE / 2;
+                int dx = px - cx;
+                int dy = py - cy;
+                if (dx*dx + dy*dy <= (PIECE_SIZE/2) * (PIECE_SIZE/2)) {
+                    led_canvas_set_pixel(canvas, x, y, r, g, b);
+                }
+            } else if (piece == 'B') {
+                // Blue 피스는 다이아몬드 형태로
+                int cx = PIECE_SIZE / 2;
+                int cy = PIECE_SIZE / 2;
+                if (abs(px - cx) + abs(py - cy) <= PIECE_SIZE/2) {
+                    led_canvas_set_pixel(canvas, x, y, r, g, b);
+                }
+            } else if (piece == '.') {
+                // 빈 공간은 작은 점으로
+                if (px == PIECE_SIZE/2 && py == PIECE_SIZE/2) {
+                    led_canvas_set_pixel(canvas, x, y, r, g, b);
+                }
+            } else if (piece == '#') {
+                // 막힌 공간은 X 표시
+                if (px == py || px == PIECE_SIZE - 1 - py) {
+                    led_canvas_set_pixel(canvas, x, y, r, g, b);
+                }
+            }
+        }
+    }
+}
+
+// LED 매트릭스에 보드 표시
+void displayBoardOnMatrix() {
+    if (!canvas) return;
+    
+    // 배경 클리어
+    led_canvas_clear(canvas);
+    
+    // 그리드 라인 그리기
+    drawGridLines();
+    
+    // 각 피스 그리기
+    for (int row = 0; row < BOARD_SIZE; row++) {
+        for (int col = 0; col < BOARD_SIZE; col++) {
+            drawPiece(row, col, board[row][col]);
+        }
+    }
+}
+
+// 보드 상태를 콘솔에 출력
+void printBoard() {
+    printf("\n현재 보드 상태:\n");
+    printf("  1 2 3 4 5 6 7 8\n");
     for (int i = 0; i < BOARD_SIZE; i++) {
         printf("%d ", i + 1);
         for (int j = 0; j < BOARD_SIZE; j++) {
@@ -193,160 +272,101 @@ void print_board(char board[BOARD_SIZE][BOARD_SIZE]) {
     printf("\n");
 }
 
-int main(int argc, char *argv[]) {
-    // 기본 옵션 값
-    int brightness = 50;
-    int gpio_slowdown = 4;
-    int use_hardware_pulse = 1;
-    int drop_privileges = 1;
+// 보드 입력 검증
+int validateBoardInput(const char* input) {
+    // 정확히 64개의 문자인지 확인
+    int len = strlen(input);
+    if (len != BOARD_SIZE * BOARD_SIZE) {
+        return 0;
+    }
     
-    // 명령줄 옵션 파싱
-    static struct option long_options[] = {
-        {"help", no_argument, 0, 'h'},
-        {"brightness", required_argument, 0, 'b'},
-        {"gpio-slowdown", required_argument, 0, 'g'},
-        {"no-hardware-pulse", no_argument, 0, 'n'},
-        {"no-drop-privs", no_argument, 0, 'd'},
-        {0, 0, 0, 0}
-    };
-    
-    int opt;
-    while ((opt = getopt_long(argc, argv, "hb:g:", long_options, NULL)) != -1) {
-        switch (opt) {
-            case 'h':
-                print_usage(argv[0]);
-                return 0;
-            case 'b':
-                brightness = atoi(optarg);
-                if (brightness < 1 || brightness > 100) {
-                    fprintf(stderr, "Brightness must be between 1 and 100\n");
-                    return 1;
-                }
-                break;
-            case 'g':
-                gpio_slowdown = atoi(optarg);
-                if (gpio_slowdown < 0 || gpio_slowdown > 4) {
-                    fprintf(stderr, "GPIO slowdown must be between 0 and 4\n");
-                    return 1;
-                }
-                break;
-            case 'n':
-                use_hardware_pulse = 0;
-                break;
-            case 'd':
-                drop_privileges = 0;
-                break;
-            default:
-                print_usage(argv[0]);
-                return 1;
+    // 각 문자가 유효한지 확인
+    for (int i = 0; i < len; i++) {
+        char c = input[i];
+        if (c != 'R' && c != 'B' && c != '.' && c != '#') {
+            return 0;
         }
     }
     
-    // Root 권한 확인
-    if (geteuid() != 0) {
-        fprintf(stderr, "Error: This program requires root privileges.\n");
-        fprintf(stderr, "Please run with sudo: sudo %s\n", argv[0]);
-        return 1;
+    return 1;
+}
+
+// 메인 함수
+int main() {
+    // 팀 이름 표시
+    displayTeamName();
+    
+    // LED 매트릭스 초기화
+    printf("LED 매트릭스 초기화 중...\n");
+    if (initLEDMatrix() != 0) {
+        printf("경고: LED 매트릭스를 초기화할 수 없습니다. 콘솔 모드로 실행합니다.\n");
+    } else {
+        printf("LED 매트릭스 초기화 완료!\n");
+        // 팀 이름 애니메이션 표시
+        showTeamNameOnMatrix();
     }
     
-    // LED Matrix 옵션 설정
-    struct RGBLedMatrixOptions options;
-    struct RGBLedRuntimeOptions rt_options;
+    // 보드 입력 안내
+    printf("\n=== 보드 상태 입력 ===\n");
+    printf("8x8 보드를 입력하세요.\n");
+    printf("사용 가능한 문자:\n");
+    printf("  R : Red 플레이어의 말\n");
+    printf("  B : Blue 플레이어의 말\n");
+    printf("  . : 빈 칸\n");
+    printf("  # : 막힌 칸\n");
+    printf("\n예시 입력:\n");
+    printf("R......B........................................................B......R\n");
+    printf("\n64개의 문자를 공백 없이 한 줄로 입력하세요:\n");
     
-    memset(&options, 0, sizeof(options));
-    memset(&rt_options, 0, sizeof(rt_options));
-    
-    options.rows = 64;
-    options.cols = 64;
-    options.chain_length = 1;
-    options.parallel = 1;
-    options.hardware_mapping = "regular";
-    options.brightness = brightness;
-    options.disable_hardware_pulsing = !use_hardware_pulse;
-    
-    rt_options.gpio_slowdown = gpio_slowdown;
-    rt_options.drop_privileges = drop_privileges;
-    
-    // 시그널 핸들러 설정
-    signal(SIGTERM, InterruptHandler);
-    signal(SIGINT, InterruptHandler);
-    
-    // LED Matrix 생성
-    printf("Initializing LED Matrix...\n");
-    printf("Options: brightness=%d, gpio_slowdown=%d, hardware_pulse=%s, drop_privs=%s\n",
-           brightness, gpio_slowdown, 
-           use_hardware_pulse ? "yes" : "no",
-           drop_privileges ? "yes" : "no");
-    
-    matrix = led_matrix_create_from_options_and_rt_options(&options, &rt_options);
-    if (matrix == NULL) {
-        fprintf(stderr, "Error: Failed to create LED matrix\n");
-        fprintf(stderr, "Possible solutions:\n");
-        fprintf(stderr, "1. Make sure you're running with sudo\n");
-        fprintf(stderr, "2. Try with --no-hardware-pulse option\n");
-        fprintf(stderr, "3. Try with --no-drop-privs option\n");
-        fprintf(stderr, "4. Check GPIO connections\n");
-        return 1;
+    // 보드 입력 받기
+    char input[BOARD_SIZE * BOARD_SIZE + 10];  // 여유 공간 포함
+    while (1) {
+        printf("> ");
+        if (fgets(input, sizeof(input), stdin) == NULL) {
+            printf("입력 오류가 발생했습니다.\n");
+            continue;
+        }
+        
+        // 개행 문자 제거
+        input[strcspn(input, "\n")] = 0;
+        
+        // 입력 검증
+        if (!validateBoardInput(input)) {
+            printf("잘못된 입력입니다. 정확히 64개의 유효한 문자(R,B,.,#)를 입력해주세요.\n");
+            continue;
+        }
+        
+        // 보드에 입력 저장
+        for (int i = 0; i < BOARD_SIZE; i++) {
+            for (int j = 0; j < BOARD_SIZE; j++) {
+                board[i][j] = input[i * BOARD_SIZE + j];
+            }
+        }
+        
+        break;
     }
     
-    canvas = led_matrix_get_canvas(matrix);
+    // 보드 상태 출력
+    printf("\n입력된 보드:\n");
+    printBoard();
     
-    printf("\n=== OctaFlip LED Matrix Display ===\n");
-    printf("64x64 LED Panel initialized successfully!\n");
-    printf("Press Ctrl+C to exit\n\n");
-    
-    // 초기 화면 표시 (테스트 패턴)
-    printf("Showing test pattern...\n");
-    led_canvas_clear(canvas);
-    
-    // 테스트 패턴: 네 모서리에 색상 표시
-    for (int y = 0; y < 8; y++) {
-        for (int x = 0; x < 8; x++) {
-            led_canvas_set_pixel(canvas, x, y, 255, 0, 0);          // 좌상단: 빨강
-            led_canvas_set_pixel(canvas, 56+x, y, 0, 255, 0);      // 우상단: 초록
-            led_canvas_set_pixel(canvas, x, 56+y, 0, 0, 255);      // 좌하단: 파랑
-            led_canvas_set_pixel(canvas, 56+x, 56+y, 255, 255, 0); // 우하단: 노랑
-        }
-    }
-    
-    printf("Test pattern displayed. Press Enter to continue...\n");
-    getchar();
-    
-    // 보드 상태 저장용 배열
-    char board[BOARD_SIZE][BOARD_SIZE];
-    
-    // 메인 루프
-    while (!interrupt_received) {
-        // 보드 입력 받기
-        if (!read_board_input(board)) {
-            break;
-        }
+    // LED 매트릭스에 표시
+    if (canvas) {
+        printf("LED 매트릭스에 보드를 표시합니다...\n");
+        displayBoardOnMatrix();
         
-        // 콘솔에 보드 출력
-        print_board(board);
-        
-        // LED Matrix에 보드 그리기
-        draw_board(canvas, board);
-        
-        printf("Board displayed on LED Matrix\n");
-        printf("\nPress Enter to input a new board state, or Ctrl+C to exit...");
-        
-        // 입력 대기
-        char c;
-        while ((c = getchar()) != '\n' && !interrupt_received) {
-            // 버퍼 비우기
-        }
-        
-        if (interrupt_received) break;
-        
-        printf("\n");
+        // 계속 표시하기 위해 대기
+        printf("종료하려면 Enter를 누르세요...\n");
+        getchar();
     }
     
     // 정리
-    printf("\nCleaning up...\n");
-    led_canvas_clear(canvas);
-    led_matrix_delete(matrix);
-    printf("Goodbye!\n");
+    if (matrix) {
+        led_matrix_delete(matrix);
+    }
+    
+    printf("\n프로그램을 종료합니다.\n");
+    printf("Team Shannon - OctaFlip LED Display\n");
     
     return 0;
 }
