@@ -1,0 +1,5697 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <time.h>
+#include <math.h>
+#include <limits.h>
+#include <sys/time.h>
+#include <stdatomic.h>
+#include <errno.h>
+#include "cJSON.h"
+
+// Platform compatibility
+#ifdef _WIN32
+    #include <windows.h>
+    #include <conio.h>
+    #define CLOCK_MONOTONIC 0
+    void clock_gettime(int dummy, struct timespec* ts) {
+        LARGE_INTEGER frequency, counter;
+        QueryPerformanceFrequency(&frequency);
+        QueryPerformanceCounter(&counter);
+        ts->tv_sec = counter.QuadPart / frequency.QuadPart;
+        ts->tv_nsec = (counter.QuadPart % frequency.QuadPart) * 1000000000 / frequency.QuadPart;
+    }
+    #define sysconf(x) 4
+    #define _SC_NPROCESSORS_ONLN 0
+#else
+    #include <unistd.h>
+    #include <sys/select.h>
+    #include <fcntl.h>
+    #include <termios.h>
+#endif
+
+// ===== GENERATED AI DATA =====
+#ifdef HAS_OPENING_BOOK
+#include "opening_book_data.h"  // train_octoflip.py에서 생성
+#endif
+
+#ifdef HAS_NNUE_WEIGHTS  
+#include "nnue_weights_generated.h"  // train_octoflip.py에서 생성
+#endif
+
+// ===== GAME CONSTANTS =====
+#define BOARD_SIZE 8
+#define RED 'R'
+#define BLUE 'B'
+#define EMPTY '.'
+#define BLOCKED '#'
+#define RED_TURN 0
+#define BLUE_TURN 1
+#define CLONE 1
+#define JUMP 2
+#define PASS 0
+
+// ===== AI CONSTANTS =====
+#define AI_MAX_DEPTH 20
+#define AI_INFINITY 1000000
+#define AI_NEG_INFINITY -1000000
+#define MAX_MOVES 200
+#define TIME_LIMIT_S 4.5
+#define BUFFER_SIZE 4096
+#define CONTEMPT_FACTOR 10  // Avoid draws when winning
+
+// ===== ENHANCED HASH TABLE =====
+#define HASH_SIZE (1 << 22)  // 4M entries for better collision avoidance
+#define HASH_MASK (HASH_SIZE - 1)
+#define BUCKET_SIZE 4        // 4-way set associative
+
+// ===== MCTS REVOLUTIONARY CONSTANTS =====
+#define MCTS_ITERATIONS 100000
+#define MCTS_C 1.41421356237  // sqrt(2) for exploitation vs exploration
+#define MCTS_RAVE_K 1000      // RAVE equivalence parameter
+#define MCTS_VIRTUAL_LOSS 3   // For parallel MCTS
+#define MCTS_EXPANSION_THRESHOLD 40  // Expand after 40 visits
+#define MCTS_NODE_POOL_SIZE 100000
+#define MCTS_TIME_CHECK_INTERVAL 100
+#define MCTS_MIN_ITERATIONS 1000  // 최소 반복 횟수
+
+
+// ===== MULTITHREADING =====
+#define MAX_THREADS 8
+#define LAZY_SMP_THREADS 4
+#define MIN_SPLIT_DEPTH 4
+
+// ===== NEURAL NETWORK INSPIRED PATTERNS =====
+#define MAX_PATTERNS 1000
+#define PATTERN_SIZE 3
+
+// ===== OPENING BOOK =====
+#define MAX_BOOK_MOVES 10
+#define BOOK_DEPTH 8
+
+// 오프닝북 관련 상수 (맨 위쪽에 추가)
+#define OPENING_BOOK_BONUS 1000  // 오프닝북 수에 주는 보너스
+#define OPENING_MAX_DEPTH 5      // 오프닝 평가 최대 깊이
+#define OPENING_EVAL_LIMIT 15    // 오프닝에서 평가할 최대 수
+
+// Type definitions
+typedef struct {
+    unsigned char r1, c1, r2, c2;
+    short score;
+    unsigned char moveType;  // CLONE or JUMP
+} Move;
+
+// Python이 생성한 오프닝북과 동일한 구조
+typedef struct {
+    uint32_t hash;
+    uint8_t moves[5][4];  // 최대 5개 후보수
+    uint8_t scores[5];    // 각 수의 점수
+    uint8_t count;        // 실제 수 개수
+} OpeningEntry;
+
+
+// Enhanced position weights with mobility zones
+static const double POSITION_WEIGHTS[3][8][8] = {
+    // Opening (0-20 pieces): Focus on mobility and development
+    {
+        {0.10, -0.40, -0.10,  0.00,  0.00, -0.10, -0.40,  0.10},
+        {-0.40, -0.50, -0.20, -0.10, -0.10, -0.20, -0.50, -0.40},
+        {-0.10, -0.20,  0.10,  0.05,  0.05,  0.10, -0.20, -0.10},
+        {0.00, -0.10,  0.05,  0.02,  0.02,  0.05, -0.10,  0.00},
+        {0.00, -0.10,  0.05,  0.02,  0.02,  0.05, -0.10,  0.00},
+        {-0.10, -0.20,  0.10,  0.05,  0.05,  0.10, -0.20, -0.10},
+        {-0.40, -0.50, -0.20, -0.10, -0.10, -0.20, -0.50, -0.40},
+        {0.10, -0.40, -0.10,  0.00,  0.00, -0.10, -0.40,  0.10}
+    },
+    // Midgame (21-40 pieces): Balanced control
+    {
+        {0.30, -0.20,  0.10,  0.05,  0.05,  0.10, -0.20,  0.30},
+        {-0.20, -0.30,  0.00,  0.00,  0.00,  0.00, -0.30, -0.20},
+        {0.10,  0.00,  0.15,  0.10,  0.10,  0.15,  0.00,  0.10},
+        {0.05,  0.00,  0.10,  0.05,  0.05,  0.10,  0.00,  0.05},
+        {0.05,  0.00,  0.10,  0.05,  0.05,  0.10,  0.00,  0.05},
+        {0.10,  0.00,  0.15,  0.10,  0.10,  0.15,  0.00,  0.10},
+        {-0.20, -0.30,  0.00,  0.00,  0.00,  0.00, -0.30, -0.20},
+        {0.30, -0.20,  0.10,  0.05,  0.05,  0.10, -0.20,  0.30}
+    },
+    // Endgame (41+ pieces): Maximize territory
+    {
+        {0.50,  0.40,  0.30,  0.20,  0.20,  0.30,  0.40,  0.50},
+        {0.40,  0.30,  0.20,  0.10,  0.10,  0.20,  0.30,  0.40},
+        {0.30,  0.20,  0.10,  0.05,  0.05,  0.10,  0.20,  0.30},
+        {0.20,  0.10,  0.05,  0.00,  0.00,  0.05,  0.10,  0.20},
+        {0.20,  0.10,  0.05,  0.00,  0.00,  0.05,  0.10,  0.20},
+        {0.30,  0.20,  0.10,  0.05,  0.05,  0.10,  0.20,  0.30},
+        {0.40,  0.30,  0.20,  0.10,  0.10,  0.20,  0.30,  0.40},
+        {0.50,  0.40,  0.30,  0.20,  0.20,  0.30,  0.40,  0.50}
+    }
+};
+
+// Pattern recognition structure
+typedef struct {
+    char pattern[PATTERN_SIZE][PATTERN_SIZE];
+    double score;
+    int frequency;  // How often this pattern leads to wins
+} Pattern;
+
+// Enhanced Transposition Table with buckets
+typedef struct {
+    unsigned long long hash;
+    int score;
+    unsigned char depth;
+    unsigned char flag;  // EXACT, LOWER, UPPER
+    Move bestMove;
+    unsigned char age;
+    unsigned char moveCount;  // Number of moves searched
+} TTEntry;
+
+typedef struct {
+    TTEntry entries[BUCKET_SIZE];
+} TTBucket;
+
+// Revolutionary MCTS Node
+typedef struct MCTSNode {
+    Move move;
+    atomic_int visits;
+    atomic_int virtualLoss;
+    double score;
+    double raveScore;
+    atomic_int raveVisits;
+    unsigned char player;
+    struct MCTSNode* parent;
+    struct MCTSNode** children;
+    unsigned short childCount;
+    unsigned short childCapacity;
+    double priorScore;  // Prior probability from neural net patterns
+    pthread_mutex_t lock;
+    
+    // Progressive bias
+    double heuristicScore;
+    int fullyExpanded;
+    
+    // AMAF (All Moves As First)
+    double amafScore[BOARD_SIZE][BOARD_SIZE][BOARD_SIZE][BOARD_SIZE];
+    int amafVisits[BOARD_SIZE][BOARD_SIZE][BOARD_SIZE][BOARD_SIZE];
+} MCTSNode;
+
+// Thread pool for parallel search
+typedef struct {
+    pthread_t thread;
+    int threadId;
+    atomic_int active;
+    void* (*function)(void*);
+    void* argument;
+} ThreadPoolWorker;
+
+typedef struct {
+    ThreadPoolWorker workers[MAX_THREADS];
+    pthread_mutex_t queueMutex;
+    pthread_cond_t workAvailable;
+    atomic_int shutdown;
+    int numThreads;
+} ThreadPool;
+
+// AI Engine types (Revolutionary)
+typedef enum {
+    ENGINE_HYBRID_ALPHABETA = 1,     // Best of minimax with enhancements
+    ENGINE_PARALLEL_MCTS = 2,        // Revolutionary parallel MCTS
+    ENGINE_NEURAL_PATTERN = 3,       // Pattern recognition engine
+    ENGINE_OPENING_BOOK = 4,         // Opening book + midgame transition
+    ENGINE_ENDGAME_SOLVER = 5,       // Perfect endgame play
+    ENGINE_TOURNAMENT_BEAST = 6,     // Combines all strategies
+    ENGINE_ADAPTIVE_TIME = 7,        // Time management specialist
+    ENGINE_LEARNING_ENGINE = 8,      // Self-improving engine
+    ENGINE_HUMAN_STYLE = 9,          // Human-like moves
+    ENGINE_RANDOM_GOOD = 10,          // Smart randomness
+    ENGINE_NNUE_BEAST = 11,      // 순수 NNUE 평가
+    ENGINE_OPENING_MASTER = 12,   // 오프닝북 + NNUE
+    ENGINE_ULTIMATE_AI = 13,      // 최강 통합 AI
+    ENGINE_HYBRID_MCTS = 14,      // MCTS + NNUE
+    ENGINE_TACTICAL_GENIUS = 15,  // 전술 특화
+    ENGINE_STRATEGIC_MASTER = 16, // 전략 특화
+    ENGINE_ENDGAME_GOD = 17,      // 완벽한 엔드게임
+    ENGINE_BLITZ_KING = 18,       // 초고속 결정
+    ENGINE_FORTRESS = 19,         // 방어 특화
+    ENGINE_ASSASSIN = 20          // 공격 특화
+} AIEngineType;
+
+// Game state for client
+typedef struct {
+    char board[BOARD_SIZE][BOARD_SIZE];
+    int currentPlayer;
+    int moveCount;
+    int lastMoveWasPass;
+    double timeRemaining;
+    int gamePhase;  // 0: opening, 1: midgame, 2: endgame
+} GameState;
+
+// Opening book entry
+typedef struct {
+    char board[BOARD_SIZE][BOARD_SIZE];
+    Move bestMove;
+    int score;
+    int frequency;
+} BookEntry;
+
+// Global variables
+static int sockfd = -1;
+static char my_username[256];
+static char my_color = '\0';
+static GameState gameState;
+static pthread_mutex_t gameMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t printMutex = PTHREAD_MUTEX_INITIALIZER;
+static atomic_int gameStarted = 0;
+static atomic_int myTurn = 0;
+static atomic_int gameOver = 0;
+static AIEngineType aiEngine = ENGINE_ULTIMATE_AI;
+static int humanMode = 0;
+
+// AI optimization globals
+static struct timespec searchStart;
+static atomic_int timeUp = 0;
+static TTBucket* transpositionTable = NULL;
+static unsigned long long zobristTable[BOARD_SIZE][BOARD_SIZE][4];
+static Move killerMoves[AI_MAX_DEPTH][2];
+static int historyTable[BOARD_SIZE][BOARD_SIZE][BOARD_SIZE][BOARD_SIZE];
+static int butterflyTable[BOARD_SIZE][BOARD_SIZE][BOARD_SIZE][BOARD_SIZE];
+static atomic_long nodeCount;
+static double timeAllocated = 0.0;
+static int currentAge = 0;
+static ThreadPool* globalThreadPool = NULL;
+static Pattern learnedPatterns[MAX_PATTERNS];
+static int patternCount = 0;
+static BookEntry* openingBook = NULL;
+
+// 누락된 함수 프로토타입들 추가 (기존 프로토타입들 뒤에)
+Move getUltraFastMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                      Move* moves, int moveCount, int materialDiff);
+Move getMaintainAdvantageMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, int materialDiff);
+Move getEnhancedOpeningMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                           Move* moves, int moveCount);
+Move getSimplificationMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                          Move* moves, int moveCount, double timeLimit);
+Move getCarefulAdvantageMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, double timeLimit);
+Move getPrecisionTacticalMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, double timeLimit);
+Move getTacticalComplicationMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, double timeLimit);
+Move getDesperationAttackMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                             Move* moves, int moveCount);
+Move getOptimalEndgameMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, double timeLimit);
+
+// 추가 헬퍼 함수들
+Move getEmergencyMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                     Move* moves, int moveCount, int materialDiff);
+Move getAggressiveOpeningMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                             Move* moves, int moveCount);
+Move getCrisisRecoveryMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                          Move* moves, int moveCount, int materialDiff);
+Move getAggressiveComplexMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                             Move* moves, int moveCount);
+Move getStableSimplifyMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                          Move* moves, int moveCount);
+Move getPrecisionMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+int countGroups(char board[BOARD_SIZE][BOARD_SIZE], char piece);
+Move getQuickStrategicMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                          Move* moves, int moveCount);
+Move getStrategicOpeningMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                            Move* moves, int moveCount);
+Move getNNUEGuidedMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, int materialDiff);
+Move getPositionalMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, int materialDiff);
+Move getComplexifyingMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+Move getSimplifyingMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+Move getHybridMCTSMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+Move getPerfectEndgameMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+Move getEnhancedAlphaBetaMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+Move getTacticalGeniusMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+
+
+// Late Move Reduction table
+static int lmrTable[64][64];
+
+// MCTS globals
+static MCTSNode* nodePool = NULL;
+static atomic_int nodePoolIndex = 0;
+static pthread_mutex_t nodePoolMutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Function prototypes
+void safePrint(const char* format, ...);
+void sendJSON(cJSON* json);
+void sendRegister(const char* username);
+void sendMove(int sx, int sy, int tx, int ty);
+void handleServerMessage(const char* message);
+void* receiveMessages(void* arg);
+void updateBoardFromJSON(cJSON* board_array);
+void printBoard();
+void cleanup();
+void sigint_handler(int sig);
+
+// AI function prototypes
+void initializeAISystem();
+void cleanupAISystem();
+Move getAIMove();
+Move getHumanMove();
+int isValidMove(int sx, int sy, int tx, int ty);
+void makeMove(char board[BOARD_SIZE][BOARD_SIZE], Move move);
+void getAllValidMoves(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, Move* moves, int* moveCount);
+double evaluateBoard(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer, int depth);
+double evaluateEndgame(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer);
+int countPieces(char board[BOARD_SIZE][BOARD_SIZE], char piece);
+double elapsedSeconds();
+void initZobrist();
+unsigned long long computeHash(char board[BOARD_SIZE][BOARD_SIZE]);
+void initLMRTable();
+void initThreadPool();
+void destroyThreadPool();
+int getGamePhase(char board[BOARD_SIZE][BOARD_SIZE]);
+
+// Revolutionary engines
+Move getHybridAlphaBetaMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+Move getParallelMCTSMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+Move getNeuralPatternMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+Move getOpeningBookMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+Move getEndgameSolverMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+Move getTournamentBeastMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+
+// AI function prototypes 섹션에 추가
+Move getOpeningBookMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer);
+static Move search_opening_book(char board[BOARD_SIZE][BOARD_SIZE]);
+static double evaluateOpeningMove(char board[BOARD_SIZE][BOARD_SIZE], Move move, int currentPlayer);
+static uint32_t compute_board_hash(char board[BOARD_SIZE][BOARD_SIZE]);
+
+// MCTS Revolutionary functions
+MCTSNode* createMCTSNode(Move move, int player, MCTSNode* parent);
+void freeMCTSTree(MCTSNode* root);
+double UCB1_RAVE(MCTSNode* node, int parentVisits);
+MCTSNode* selectBestChild(MCTSNode* node, double c);
+MCTSNode* treePolicy(MCTSNode* node, char board[BOARD_SIZE][BOARD_SIZE]);
+void expand(MCTSNode* node, char board[BOARD_SIZE][BOARD_SIZE]);
+double simulate(char board[BOARD_SIZE][BOARD_SIZE], int startingPlayer);
+void backpropagate(MCTSNode* node, double result, Move* moveSequence, int sequenceLength);
+Move getMCTSBestMove(MCTSNode* root);
+void mctsWorkerSingle(MCTSWorkerData* data);  // 함수 프로토타입 추가
+
+// Pattern learning
+void learnPattern(char board[BOARD_SIZE][BOARD_SIZE], Move move, double outcome);
+double evaluatePatterns(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer);
+
+// Enhanced evaluation components
+double evaluateMobility(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer);
+double evaluateStability(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer);
+double evaluateFrontier(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer);
+double evaluatePotential(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer);
+
+int enhancedAlphaBeta(char board[BOARD_SIZE][BOARD_SIZE], int depth, int alpha, int beta, 
+                     int currentPlayer, Move* bestMove, int pvNode, int canNull);
+
+// 이전 움직임 추적 
+static Move lastMoves[3] = {0};  // 최근 3개 움직임 저장
+
+// Python의 compute_board_hash와 동일
+static uint32_t compute_board_hash(char board[BOARD_SIZE][BOARD_SIZE]) {
+    uint32_t hash = 0;
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            hash = hash * 31 + board[i][j];
+        }
+    }
+    return hash;
+}
+
+
+// MCTS globals
+static MCTSNode* nodePool = NULL;
+static atomic_int nodePoolIndex = 0;
+static pthread_mutex_t nodePoolMutex = PTHREAD_MUTEX_INITIALIZER;
+
+// MCTS Worker Data structure 추가!
+typedef struct {
+    MCTSNode* root;
+    char board[BOARD_SIZE][BOARD_SIZE];
+    int playerId;
+    atomic_int* iterationCount;
+    double timeLimit;
+} MCTSWorkerData;
+
+// 오프닝 움직임 평가 함수
+static double evaluateOpeningMove(char board[BOARD_SIZE][BOARD_SIZE], Move move, int currentPlayer) {
+    double score = 0.0;
+    char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+    
+    // 시뮬레이션
+    char tempBoard[BOARD_SIZE][BOARD_SIZE];
+    memcpy(tempBoard, board, sizeof(tempBoard));
+    tempBoard[move.r2][move.c2] = playerPiece;
+    if (move.moveType == JUMP) {
+        tempBoard[move.r1][move.c1] = EMPTY;
+    }
+    
+    // 즉시 캡처 계산
+    int captures = 0;
+    for (int dr = -1; dr <= 1; dr++) {
+        for (int dc = -1; dc <= 1; dc++) {
+            if (dr == 0 && dc == 0) continue;
+            int nr = move.r2 + dr;
+            int nc = move.c2 + dc;
+            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                if (board[nr][nc] == opponentPiece) {
+                    tempBoard[nr][nc] = playerPiece;
+                    captures++;
+                }
+            }
+        }
+    }
+    score += captures * 15.0;
+    
+    // 위치 가치 (중앙 선호)
+    double posValue = POSITION_WEIGHTS[0][move.r2][move.c2];
+    score += posValue * 100.0;
+    
+    // 안전성 평가 - 상대 반격 가능성
+    int maxThreat = 0;
+    Move oppMoves[MAX_MOVES];
+    int oppMoveCount;
+    getAllValidMoves(tempBoard, !currentPlayer, oppMoves, &oppMoveCount);
+    
+    for (int i = 0; i < oppMoveCount && i < 10; i++) {
+        int threat = 0;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = oppMoves[i].r2 + dr;
+                int nc = oppMoves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                    if (tempBoard[nr][nc] == playerPiece) threat++;
+                }
+            }
+        }
+        if (threat > maxThreat) maxThreat = threat;
+    }
+    score -= maxThreat * 20.0;
+    
+    // 연결성 보너스
+    int friendly = 0;
+    for (int dr = -2; dr <= 2; dr++) {
+        for (int dc = -2; dc <= 2; dc++) {
+            if (abs(dr) + abs(dc) > 3) continue;
+            int nr = move.r2 + dr;
+            int nc = move.c2 + dc;
+            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                if (tempBoard[nr][nc] == playerPiece) {
+                    friendly++;
+                    if (abs(dr) <= 1 && abs(dc) <= 1) friendly++; // 인접 보너스
+                }
+            }
+        }
+    }
+    score += friendly * 5.0;
+    
+    // 움직임 타입 보너스
+    int pieceCount = countPieces(board, RED) + countPieces(board, BLUE);
+    if (pieceCount < 10 && move.moveType == CLONE) {
+        score += 10.0;  // 초반 클론 선호
+    }
+    
+    return score;
+}
+
+// ===== NNUE EVALUATION =====
+#ifdef HAS_NNUE_WEIGHTS
+
+typedef struct {
+    int16_t hidden1[NNUE_HIDDEN1_SIZE];
+    int16_t hidden2[NNUE_HIDDEN2_SIZE];
+} NNUEAccumulator;
+
+static int nnue_evaluate(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer) {
+    // 입력 벡터 생성
+    int16_t input[192] = {0};
+    
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            int idx = i * 8 + j;
+            if (board[i][j] == RED) {
+                input[idx] = NNUE_SCALE;
+            } else if (board[i][j] == BLUE) {
+                input[idx + 64] = NNUE_SCALE;
+            } else if (board[i][j] == EMPTY) {
+                input[idx + 128] = NNUE_SCALE;
+            }
+        }
+    }
+    
+    // Layer 1: input -> hidden1
+    int32_t acc1[NNUE_HIDDEN1_SIZE];
+    for (int i = 0; i < NNUE_HIDDEN1_SIZE; i++) {
+        acc1[i] = nnue_b1[i] * NNUE_SCALE;
+        for (int j = 0; j < 192; j++) {
+            acc1[i] += (int32_t)input[j] * nnue_w1[j][i];
+        }
+        // ReLU
+        acc1[i] = acc1[i] > 0 ? acc1[i] : 0;
+        acc1[i] /= NNUE_SCALE;
+    }
+    
+    // Layer 2: hidden1 -> hidden2
+    int32_t acc2[NNUE_HIDDEN2_SIZE];
+    for (int i = 0; i < NNUE_HIDDEN2_SIZE; i++) {
+        acc2[i] = nnue_b2[i] * NNUE_SCALE;
+        for (int j = 0; j < NNUE_HIDDEN1_SIZE; j++) {
+            acc2[i] += acc1[j] * nnue_w2[j][i];
+        }
+        // ReLU
+        acc2[i] = acc2[i] > 0 ? acc2[i] : 0;
+        acc2[i] /= NNUE_SCALE;
+    }
+    
+    // Output layer
+    int32_t output = nnue_b3[0] * NNUE_SCALE;
+    for (int i = 0; i < NNUE_HIDDEN2_SIZE; i++) {
+        output += acc2[i] * nnue_w3[i];
+    }
+    
+    // Tanh approximation and scaling
+    output /= NNUE_SCALE;
+    if (output > NNUE_OUTPUT_SCALE) output = NNUE_OUTPUT_SCALE;
+    if (output < -NNUE_OUTPUT_SCALE) output = -NNUE_OUTPUT_SCALE;
+    
+    // Perspective
+    return (forPlayer == RED_TURN) ? output : -output;
+}
+
+#endif // HAS_NNUE_WEIGHTS
+
+// 메인 오프닝북 함수 - getTournamentBeastMove 보다 앞에 위치해야 함
+Move getOpeningBookMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    int pieceCount = countPieces(board, RED) + countPieces(board, BLUE);
+    
+    if (pieceCount > 20) {
+        return (Move){0, 0, 0, 0, 0, 0};
+    }
+    
+    safePrint("Enhanced opening book: %d pieces\n", pieceCount);
+    
+    // 첫 수 특별 처리
+    if (pieceCount == 4) {
+        // 코너 피스들 확인
+        if (board[0][0] == RED && board[7][7] == RED && currentPlayer == RED_TURN) {
+            // 중앙으로 진출
+            if (board[1][1] == EMPTY) return (Move){0, 0, 1, 1, 0, CLONE};
+            if (board[6][6] == EMPTY) return (Move){7, 7, 6, 6, 0, CLONE};
+        }
+    }
+    
+    // 일반 오프닝 전략
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    if (moveCount == 0) return (Move){0, 0, 0, 0, 0, 0};
+    
+    // 중앙 지향적 평가
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    
+    for (int i = 0; i < moveCount && i < 15; i++) {
+        double score = 0.0;
+        
+        // 중앙 거리
+        double centerDist = sqrt(pow(moves[i].r2 - 3.5, 2) + pow(moves[i].c2 - 3.5, 2));
+        score -= centerDist * 20.0;
+        
+        // 코너/엣지 회피
+        if ((moves[i].r2 == 0 || moves[i].r2 == 7) && 
+            (moves[i].c2 == 0 || moves[i].c2 == 7)) {
+            score -= 100.0;
+        }
+        
+        // 캡처 가능성
+        char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                    board[nr][nc] == opponentPiece) {
+                    score += 50.0;
+                }
+            }
+        }
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+
+// 오프닝북 검색 함수
+static Move search_opening_book(char board[BOARD_SIZE][BOARD_SIZE]) {
+    Move result = {0, 0, 0, 0, 0, 0};
+    
+    #ifdef HAS_OPENING_BOOK
+    extern const OpeningEntry opening_book[];
+    extern const int opening_book_size;
+    
+    uint32_t hash = compute_board_hash(board);
+    
+    for (int i = 0; i < opening_book_size; i++) {
+        if (opening_book[i].hash == hash) {
+            // 가장 좋은 수만 반환 (확률적 선택 제거)
+            if (opening_book[i].count > 0) {
+                result.r1 = opening_book[i].moves[0][0];
+                result.c1 = opening_book[i].moves[0][1];
+                result.r2 = opening_book[i].moves[0][2];
+                result.c2 = opening_book[i].moves[0][3];
+                result.score = opening_book[i].scores[0];
+                result.moveType = (abs(result.r2 - result.r1) <= 1 && 
+                                  abs(result.c2 - result.c1) <= 1) ? CLONE : JUMP;
+            }
+            break;
+        }
+    }
+    #else
+    (void)board; // 사용하지 않는 매개변수 경고 제거
+    #endif
+    
+    return result;
+}
+
+// ===== IMPLEMENTATION =====
+
+void safePrint(const char* format, ...) {
+    pthread_mutex_lock(&printMutex);
+    va_list args;
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+    fflush(stdout);
+    pthread_mutex_unlock(&printMutex);
+}
+
+void initZobrist() {
+    srand(time(NULL));
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            for (int k = 0; k < 4; k++) {
+                zobristTable[i][j][k] = ((unsigned long long)rand() << 48) |
+                                        ((unsigned long long)rand() << 32) |
+                                        ((unsigned long long)rand() << 16) |
+                                        ((unsigned long long)rand());
+            }
+        }
+    }
+}
+
+unsigned long long computeHash(char board[BOARD_SIZE][BOARD_SIZE]) {
+    unsigned long long hash = 0;
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            int piece;
+            switch (board[i][j]) {
+                case RED: piece = 0; break;
+                case BLUE: piece = 1; break;
+                case EMPTY: piece = 2; break;
+                case BLOCKED: piece = 3; break;
+                default: piece = 2;
+            }
+            hash ^= zobristTable[i][j][piece];
+        }
+    }
+    return hash;
+}
+
+void initLMRTable() {
+    for (int depth = 0; depth < 64; depth++) {
+        for (int moves = 0; moves < 64; moves++) {
+            if (depth < 3 || moves < 3) {
+                lmrTable[depth][moves] = 0;
+            } else {
+                // More aggressive reductions for late moves
+                lmrTable[depth][moves] = (int)(0.5 + log(depth) * log(moves) / 2.5);
+                if (lmrTable[depth][moves] > depth - 2) {
+                    lmrTable[depth][moves] = depth - 2;
+                }
+            }
+        }
+    }
+}
+
+void initThreadPool() {
+    globalThreadPool = (ThreadPool*)malloc(sizeof(ThreadPool));
+    if (!globalThreadPool) return;
+    
+    pthread_mutex_init(&globalThreadPool->queueMutex, NULL);
+    pthread_cond_init(&globalThreadPool->workAvailable, NULL);
+    atomic_store(&globalThreadPool->shutdown, 0);
+    
+    #ifdef _WIN32
+        SYSTEM_INFO sysinfo;
+        GetSystemInfo(&sysinfo);
+        globalThreadPool->numThreads = sysinfo.dwNumberOfProcessors;
+    #else
+        globalThreadPool->numThreads = sysconf(_SC_NPROCESSORS_ONLN);
+    #endif
+    
+    if (globalThreadPool->numThreads > MAX_THREADS) {
+        globalThreadPool->numThreads = MAX_THREADS;
+    }
+    
+    // Don't create threads yet - will create on demand
+}
+
+void destroyThreadPool() {
+    if (!globalThreadPool) return;
+    
+    atomic_store(&globalThreadPool->shutdown, 1);
+    pthread_cond_broadcast(&globalThreadPool->workAvailable);
+    
+    // Wait for all threads to finish
+    for (int i = 0; i < globalThreadPool->numThreads; i++) {
+        if (atomic_load(&globalThreadPool->workers[i].active)) {
+            pthread_join(globalThreadPool->workers[i].thread, NULL);
+        }
+    }
+    
+    pthread_mutex_destroy(&globalThreadPool->queueMutex);
+    pthread_cond_destroy(&globalThreadPool->workAvailable);
+    free(globalThreadPool);
+    globalThreadPool = NULL;
+}
+
+double elapsedSeconds() {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    
+    // searchStart가 제대로 초기화되지 않았으면 0 반환
+    if (searchStart.tv_sec == 0 && searchStart.tv_nsec == 0) {
+        return 0.0;
+    }
+    
+    double elapsed = (now.tv_sec - searchStart.tv_sec) + 
+                    (now.tv_nsec - searchStart.tv_nsec) / 1000000000.0;
+    
+    // 비정상적인 값 체크
+    if (elapsed < 0) {
+        safePrint("WARNING: Negative elapsed time %.2f, returning 0\n", elapsed);
+        return 0.0;
+    }
+    
+    if (elapsed > 100.0) {  // 100초 이상은 비정상
+        safePrint("WARNING: Abnormal elapsed time %.2f, returning 10.0\n", elapsed);
+        return 10.0;  // 타임아웃을 유발하도록
+    }
+    
+    return elapsed;
+}
+
+
+int getGamePhase(char board[BOARD_SIZE][BOARD_SIZE]) {
+    int totalPieces = countPieces(board, RED) + countPieces(board, BLUE);
+    if (totalPieces < 20) return 0;  // Opening
+    if (totalPieces < 40) return 1;  // Midgame
+    return 2;  // Endgame
+}
+
+int countPieces(char board[BOARD_SIZE][BOARD_SIZE], char piece) {
+    int count = 0;
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            if (board[i][j] == piece) count++;
+        }
+    }
+    return count;
+}
+
+int getMoveType(int sx, int sy, int tx, int ty) {
+    int dx = abs(tx - sx);
+    int dy = abs(ty - sy);
+    
+    if (dx == 0 && dy == 0) return -1;
+    if (dx <= 1 && dy <= 1) return CLONE;
+    if ((dx == 2 && dy == 0) || (dx == 0 && dy == 2) || (dx == 2 && dy == 2)) return JUMP;
+    
+    return -1;
+}
+
+int isValidMove(int sx, int sy, int tx, int ty) {
+    if (sx < 0 || sx >= BOARD_SIZE || sy < 0 || sy >= BOARD_SIZE ||
+        tx < 0 || tx >= BOARD_SIZE || ty < 0 || ty >= BOARD_SIZE) {
+        return 0;
+    }
+    
+    if (gameState.board[sx][sy] != my_color) return 0;
+    if (gameState.board[tx][ty] != EMPTY) return 0;
+    
+    return getMoveType(sx, sy, tx, ty) > 0;
+}
+
+void makeMove(char board[BOARD_SIZE][BOARD_SIZE], Move move) {
+    char playerPiece = (gameState.currentPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (gameState.currentPlayer == RED_TURN) ? BLUE : RED;
+    
+    board[move.r2][move.c2] = playerPiece;
+    
+    if (move.moveType == JUMP) {
+        board[move.r1][move.c1] = EMPTY;
+    }
+    
+    // Flip adjacent pieces
+    for (int dr = -1; dr <= 1; dr++) {
+        for (int dc = -1; dc <= 1; dc++) {
+            if (dr == 0 && dc == 0) continue;
+            
+            int nr = move.r2 + dr;
+            int nc = move.c2 + dc;
+            
+            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                if (board[nr][nc] == opponentPiece) {
+                    board[nr][nc] = playerPiece;
+                }
+            }
+        }
+    }
+}
+
+void getAllValidMoves(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, Move* moves, int* moveCount) {
+    char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+    *moveCount = 0;
+    
+    // First pass: collect all moves
+    for (int r1 = 0; r1 < BOARD_SIZE; r1++) {
+        for (int c1 = 0; c1 < BOARD_SIZE; c1++) {
+            if (board[r1][c1] != playerPiece) continue;
+            
+            // Clone moves
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    if (dr == 0 && dc == 0) continue;
+                    
+                    int r2 = r1 + dr;
+                    int c2 = c1 + dc;
+                    
+                    if (r2 >= 0 && r2 < BOARD_SIZE && c2 >= 0 && c2 < BOARD_SIZE) {
+                        if (board[r2][c2] == EMPTY) {
+                            if (*moveCount < MAX_MOVES) {
+                                moves[*moveCount].r1 = r1;
+                                moves[*moveCount].c1 = c1;
+                                moves[*moveCount].r2 = r2;
+                                moves[*moveCount].c2 = c2;
+                                moves[*moveCount].moveType = CLONE;
+                                moves[*moveCount].score = 0;
+                                (*moveCount)++;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Jump moves
+            int jumpDirs[8][2] = {{-2,0}, {2,0}, {0,-2}, {0,2}, {-2,-2}, {-2,2}, {2,-2}, {2,2}};
+            for (int i = 0; i < 8; i++) {
+                int r2 = r1 + jumpDirs[i][0];
+                int c2 = c1 + jumpDirs[i][1];
+                
+                if (r2 >= 0 && r2 < BOARD_SIZE && c2 >= 0 && c2 < BOARD_SIZE) {
+                    if (board[r2][c2] == EMPTY) {
+                        if (*moveCount < MAX_MOVES) {
+                            moves[*moveCount].r1 = r1;
+                            moves[*moveCount].c1 = c1;
+                            moves[*moveCount].r2 = r2;
+                            moves[*moveCount].c2 = c2;
+                            moves[*moveCount].moveType = JUMP;
+                            moves[*moveCount].score = 0;
+                            (*moveCount)++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Revolutionary evaluation function
+double evaluateBoard(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer, int depth) {
+    int redCount = countPieces(board, RED);
+    int blueCount = countPieces(board, BLUE);
+    
+    // 조기 종료 조건
+    if (redCount == 0) {
+        return (forPlayer == BLUE_TURN) ? AI_INFINITY - depth : -AI_INFINITY + depth;
+    }
+    if (blueCount == 0) {
+        return (forPlayer == RED_TURN) ? AI_INFINITY - depth : -AI_INFINITY + depth;
+    }
+    
+    double score = 0.0;
+    int emptyCount = countPieces(board, EMPTY);
+    
+    // 1. 재료 점수 (가장 중요)
+    int pieceDiff = (forPlayer == RED_TURN) ? (redCount - blueCount) : (blueCount - redCount);
+    double materialWeight = 25.0;
+    if (emptyCount < 10) materialWeight = 40.0;
+    else if (emptyCount < 20) materialWeight = 30.0;
+    
+    score += pieceDiff * materialWeight;
+    
+    // 2. 안전성 평가 (크게 강화!)
+    char playerPiece = (forPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (forPlayer == RED_TURN) ? BLUE : RED;
+    int gamePhase = getGamePhase(board);
+    
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            if (board[i][j] == playerPiece) {
+                // 위치 가치
+                score += POSITION_WEIGHTS[gamePhase][i][j] * 60.0;
+                
+                // 즉각적인 캡처 위험 평가 (매우 중요!)
+                int captureRisk = 0;
+                
+                // 상대방이 이 말을 캡처할 수 있는지 확인
+                for (int r = 0; r < BOARD_SIZE; r++) {
+                    for (int c = 0; c < BOARD_SIZE; c++) {
+                        if (board[r][c] == opponentPiece) {
+                            // Clone으로 캡처 가능한지
+                            int dr = abs(i - r);
+                            int dc = abs(j - c);
+                            if (dr <= 1 && dc <= 1 && dr + dc > 0) {
+                                // 인접한 빈 칸이 있으면 캡처 가능
+                                for (int dr2 = -1; dr2 <= 1; dr2++) {
+                                    for (int dc2 = -1; dc2 <= 1; dc2++) {
+                                        if (dr2 == 0 && dc2 == 0) continue;
+                                        int nr = r + dr2;
+                                        int nc = c + dc2;
+                                        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                                            board[nr][nc] == EMPTY) {
+                                            // 상대가 이 빈칸으로 와서 나를 캡처할 수 있음
+                                            if (abs(nr - i) <= 1 && abs(nc - j) <= 1) {
+                                                captureRisk = 1;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (captureRisk) break;
+                                }
+                            }
+                            
+                            // Jump로 캡처 가능한지
+                            if (!captureRisk && dr <= 2 && dc <= 2 && 
+                                (dr == 2 || dc == 2 || (dr == 2 && dc == 2))) {
+                                // Jump 목적지 확인
+                                for (int jr = -2; jr <= 2; jr += 2) {
+                                    for (int jc = -2; jc <= 2; jc += 2) {
+                                        if (jr == 0 && jc == 0) continue;
+                                        int nr = r + jr;
+                                        int nc = c + jc;
+                                        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                                            board[nr][nc] == EMPTY) {
+                                            // 이 위치에서 나를 캡처할 수 있는지
+                                            if (abs(nr - i) <= 1 && abs(nc - j) <= 1) {
+                                                captureRisk = 1;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (captureRisk) break;
+                                }
+                            }
+                            
+                            if (captureRisk) break;
+                        }
+                    }
+                    if (captureRisk) break;
+                }
+                
+                // 캡처 위험이 있으면 큰 페널티
+                if (captureRisk) {
+                    score -= 150.0;  // 매우 큰 페널티
+                    
+                    // 말이 적으면 더 큰 페널티
+                    if ((forPlayer == RED_TURN ? redCount : blueCount) <= 2) {
+                        score -= 200.0;  // 추가 페널티
+                    }
+                }
+                
+                // 안정성 (주변에 아군이 많으면 좋음)
+                int friendly = 0;
+                int threats = 0;
+                
+                for (int dr = -1; dr <= 1; dr++) {
+                    for (int dc = -1; dc <= 1; dc++) {
+                        if (dr == 0 && dc == 0) continue;
+                        int nr = i + dr, nc = j + dc;
+                        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                            if (board[nr][nc] == playerPiece) {
+                                friendly++;
+                            } else if (board[nr][nc] == opponentPiece) {
+                                threats++;
+                            }
+                        }
+                    }
+                }
+                
+                score += friendly * 8.0;
+                score -= threats * 10.0;  
+            }
+        }
+    }
+    
+    // 3. 모빌리티 (중반에 중요)
+    if (emptyCount > 15) {
+        Move tempMoves[MAX_MOVES];
+        int playerMoves, opponentMoves;
+        getAllValidMoves(board, forPlayer, tempMoves, &playerMoves);
+        getAllValidMoves(board, !forPlayer, tempMoves, &opponentMoves);
+        
+        if (playerMoves + opponentMoves > 0) {
+            double mobilityScore = 100.0 * (playerMoves - opponentMoves) / (playerMoves + opponentMoves);
+            score += mobilityScore * 3.0;
+        }
+        
+        // 움직임이 없으면 패스해야 함 (나쁨)
+        if (playerMoves == 0 && opponentMoves > 0) {
+            score -= 50.0;
+        }
+    }
+    
+    // 4. 캡처 잠재력
+    int captureThreats = 0;
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            if (board[i][j] == EMPTY) {
+                // 이 빈칸에 놓으면 몇 개를 캡처할 수 있는가?
+                int potentialCaptures = 0;
+                for (int dr = -1; dr <= 1; dr++) {
+                    for (int dc = -1; dc <= 1; dc++) {
+                        if (dr == 0 && dc == 0) continue;
+                        int nr = i + dr, nc = j + dc;
+                        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                            if (board[nr][nc] == opponentPiece) {
+                                potentialCaptures++;
+                            }
+                        }
+                    }
+                }
+                if (potentialCaptures >= 2) {
+                    captureThreats++;
+                }
+            }
+        }
+    }
+    score += captureThreats * 10.0;
+    
+    // 5. 엔드게임 특별 평가
+    if (emptyCount < 15) {
+        // 코너와 엣지 중요도 증가
+        int corners[4][2] = {{0,0}, {0,7}, {7,0}, {7,7}};
+        for (int i = 0; i < 4; i++) {
+            if (board[corners[i][0]][corners[i][1]] == playerPiece) {
+                score += 50.0;
+            } else if (board[corners[i][0]][corners[i][1]] == opponentPiece) {
+                score -= 50.0;
+            }
+        }
+    }
+    
+    return score;
+}
+
+
+
+double evaluateMobility(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer) {
+    Move tempMoves[MAX_MOVES];
+    int playerMoves, opponentMoves;
+    
+    getAllValidMoves(board, forPlayer, tempMoves, &playerMoves);
+    getAllValidMoves(board, !forPlayer, tempMoves, &opponentMoves);
+    
+    if (playerMoves + opponentMoves == 0) return 0.0;
+    
+    // Actual mobility
+    double actualMobility = 100.0 * (playerMoves - opponentMoves) / (playerMoves + opponentMoves);
+    
+    // Potential mobility (empty squares near pieces)
+    int playerPotential = 0, opponentPotential = 0;
+    char playerPiece = (forPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (forPlayer == RED_TURN) ? BLUE : RED;
+    
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            if (board[i][j] == EMPTY) {
+                int playerNeighbors = 0, opponentNeighbors = 0;
+                
+                for (int di = -1; di <= 1; di++) {
+                    for (int dj = -1; dj <= 1; dj++) {
+                        if (di == 0 && dj == 0) continue;
+                        int ni = i + di, nj = j + dj;
+                        if (ni >= 0 && ni < BOARD_SIZE && nj >= 0 && nj < BOARD_SIZE) {
+                            if (board[ni][nj] == playerPiece) playerNeighbors++;
+                            else if (board[ni][nj] == opponentPiece) opponentNeighbors++;
+                        }
+                    }
+                }
+                
+                if (playerNeighbors > opponentNeighbors) playerPotential++;
+                else if (opponentNeighbors > playerNeighbors) opponentPotential++;
+            }
+        }
+    }
+    
+    double potentialMobility = 0.0;
+    if (playerPotential + opponentPotential > 0) {
+        potentialMobility = 50.0 * (playerPotential - opponentPotential) / 
+                            (playerPotential + opponentPotential);
+    }
+    
+    return actualMobility + potentialMobility * 0.5;
+}
+
+double evaluateStability(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer) {
+    double score = 0.0;
+    char playerPiece = (forPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (forPlayer == RED_TURN) ? BLUE : RED;
+    
+    // Corner pieces (most stable)
+    int corners[4][2] = {{0,0}, {0,7}, {7,0}, {7,7}};
+    for (int i = 0; i < 4; i++) {
+        if (board[corners[i][0]][corners[i][1]] == playerPiece) {
+            score += 25.0;
+        } else if (board[corners[i][0]][corners[i][1]] == opponentPiece) {
+            score -= 25.0;
+        }
+    }
+    
+    // X-squares (dangerous if corner is empty)
+    int xSquares[4][2] = {{1,1}, {1,6}, {6,1}, {6,6}};
+    for (int i = 0; i < 4; i++) {
+        int cornerR = (xSquares[i][0] == 1) ? 0 : 7;
+        int cornerC = (xSquares[i][1] == 1) ? 0 : 7;
+        
+        if (board[cornerR][cornerC] == EMPTY) {
+            if (board[xSquares[i][0]][xSquares[i][1]] == playerPiece) {
+                score -= 15.0;
+            } else if (board[xSquares[i][0]][xSquares[i][1]] == opponentPiece) {
+                score += 15.0;
+            }
+        }
+    }
+    
+    // Edge stability
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        // Top and bottom edges
+        if (board[0][i] == playerPiece) score += 5.0;
+        else if (board[0][i] == opponentPiece) score -= 5.0;
+        
+        if (board[7][i] == playerPiece) score += 5.0;
+        else if (board[7][i] == opponentPiece) score -= 5.0;
+        
+        // Left and right edges (avoiding corners)
+        if (i > 0 && i < 7) {
+            if (board[i][0] == playerPiece) score += 5.0;
+            else if (board[i][0] == opponentPiece) score -= 5.0;
+            
+            if (board[i][7] == playerPiece) score += 5.0;
+            else if (board[i][7] == opponentPiece) score -= 5.0;
+        }
+    }
+    
+    return score;
+}
+
+double evaluateFrontier(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer) {
+    int playerFrontier = 0, opponentFrontier = 0;
+    char playerPiece = (forPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (forPlayer == RED_TURN) ? BLUE : RED;
+    
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            if (board[i][j] == playerPiece || board[i][j] == opponentPiece) {
+                int hasEmptyNeighbor = 0;
+                
+                for (int di = -1; di <= 1; di++) {
+                    for (int dj = -1; dj <= 1; dj++) {
+                        if (di == 0 && dj == 0) continue;
+                        int ni = i + di, nj = j + dj;
+                        if (ni >= 0 && ni < BOARD_SIZE && nj >= 0 && nj < BOARD_SIZE) {
+                            if (board[ni][nj] == EMPTY) {
+                                hasEmptyNeighbor = 1;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasEmptyNeighbor) break;
+                }
+                
+                if (hasEmptyNeighbor) {
+                    if (board[i][j] == playerPiece) playerFrontier++;
+                    else opponentFrontier++;
+                }
+            }
+        }
+    }
+    
+    // In OctaFlip, having fewer frontier pieces is often better (more stable)
+    if (playerFrontier + opponentFrontier > 0) {
+        return -10.0 * (playerFrontier - opponentFrontier) / (playerFrontier + opponentFrontier);
+    }
+    
+    return 0.0;
+}
+
+double evaluatePotential(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer) {
+    double score = 0.0;
+    char playerPiece = (forPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (forPlayer == RED_TURN) ? BLUE : RED;
+    
+    // Evaluate potential flips
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            if (board[i][j] == EMPTY) {
+                int playerFlips = 0, opponentFlips = 0;
+                
+                // Count potential flips if player moves here
+                for (int di = -1; di <= 1; di++) {
+                    for (int dj = -1; dj <= 1; dj++) {
+                        if (di == 0 && dj == 0) continue;
+                        int ni = i + di, nj = j + dj;
+                        if (ni >= 0 && ni < BOARD_SIZE && nj >= 0 && nj < BOARD_SIZE) {
+                            if (board[ni][nj] == opponentPiece) playerFlips++;
+                            else if (board[ni][nj] == playerPiece) opponentFlips++;
+                        }
+                    }
+                }
+                
+                // Weight by position value
+                double posValue = POSITION_WEIGHTS[getGamePhase(board)][i][j];
+                score += (playerFlips - opponentFlips) * posValue;
+            }
+        }
+    }
+    
+    return score;
+}
+
+double evaluatePatterns(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer) {
+    double score = 0.0;
+    
+    // Check learned patterns
+    for (int p = 0; p < patternCount; p++) {
+        Pattern* pattern = &learnedPatterns[p];
+        
+        // Try to match pattern at each position
+        for (int i = 0; i <= BOARD_SIZE - PATTERN_SIZE; i++) {
+            for (int j = 0; j <= BOARD_SIZE - PATTERN_SIZE; j++) {
+                int matches = 1;
+                
+                for (int pi = 0; pi < PATTERN_SIZE && matches; pi++) {
+                    for (int pj = 0; pj < PATTERN_SIZE && matches; pj++) {
+                        if (pattern->pattern[pi][pj] != '?' &&
+                            pattern->pattern[pi][pj] != board[i + pi][j + pj]) {
+                            matches = 0;
+                        }
+                    }
+                }
+                
+                if (matches) {
+                    score += pattern->score * (pattern->frequency / 100.0);
+                }
+            }
+        }
+    }
+    
+    // Hardcoded strong patterns
+    // Diamond formation in center
+    if (board[3][3] == board[3][4] && board[3][3] == board[4][3] && 
+        board[3][3] == board[4][4] && board[3][3] != EMPTY) {
+        if (board[3][3] == ((forPlayer == RED_TURN) ? RED : BLUE)) {
+            score += 20.0;
+        } else {
+            score -= 20.0;
+        }
+    }
+    
+    return score;
+}
+
+// MCTS Node creation
+MCTSNode* createMCTSNode(Move move, int player, MCTSNode* parent) {
+    MCTSNode* node = NULL;
+    
+    // Try to get from pool first
+    pthread_mutex_lock(&nodePoolMutex);
+    if (nodePoolIndex < MCTS_NODE_POOL_SIZE) {
+        node = &nodePool[nodePoolIndex++];
+    }
+    pthread_mutex_unlock(&nodePoolMutex);
+    
+    if (!node) {
+        node = (MCTSNode*)malloc(sizeof(MCTSNode));
+        if (!node) return NULL;
+    }
+    
+    // Initialize node
+    node->move = move;
+    atomic_init(&node->visits, 0);
+    atomic_init(&node->virtualLoss, 0);
+    node->score = 0.0;
+    node->raveScore = 0.0;
+    atomic_init(&node->raveVisits, 0);
+    node->player = player;
+    node->parent = parent;
+    node->children = NULL;
+    node->childCount = 0;
+    node->childCapacity = 0;
+    node->priorScore = 0.0;
+    pthread_mutex_init(&node->lock, NULL);
+    node->heuristicScore = 0.0;
+    node->fullyExpanded = 0;
+    
+    // Clear AMAF tables
+    memset(node->amafScore, 0, sizeof(node->amafScore));
+    memset(node->amafVisits, 0, sizeof(node->amafVisits));
+    
+    return node;
+}
+
+void freeMCTSTree(MCTSNode* root) {
+    if (!root) return;
+    
+    for (int i = 0; i < root->childCount; i++) {
+        freeMCTSTree(root->children[i]);
+    }
+    
+    if (root->children) free(root->children);
+    pthread_mutex_destroy(&root->lock);
+    
+    // Don't actually free if from pool
+    if ((char*)root < (char*)nodePool || 
+        (char*)root >= (char*)nodePool + sizeof(MCTSNode) * MCTS_NODE_POOL_SIZE) {
+        free(root);
+    }
+}
+
+double UCB1_RAVE(MCTSNode* node, int parentVisits) {
+    if (atomic_load(&node->visits) == 0) {
+        return AI_INFINITY + node->priorScore;
+    }
+    
+    int visits = atomic_load(&node->visits);
+    double exploitation = node->score / visits;
+    double exploration = MCTS_C * sqrt(log(parentVisits) / visits);
+    
+    // RAVE integration
+    if (atomic_load(&node->raveVisits) > 0) {
+        int raveVisits = atomic_load(&node->raveVisits);
+        double beta = sqrt(MCTS_RAVE_K / (3.0 * visits + MCTS_RAVE_K));
+        double raveScore = node->raveScore / raveVisits;
+        
+        exploitation = beta * raveScore + (1.0 - beta) * exploitation;
+    }
+    
+    // Progressive bias
+    if (visits < 50) {
+        exploitation += node->heuristicScore / (visits + 1);
+    }
+    
+    return exploitation + exploration;
+}
+
+MCTSNode* selectBestChild(MCTSNode* node, double c) {
+    MCTSNode* best = NULL;
+    double bestValue = -AI_INFINITY;
+    
+    int parentVisits = atomic_load(&node->visits);
+    
+    for (int i = 0; i < node->childCount; i++) {
+        MCTSNode* child = node->children[i];
+        
+        // Apply virtual loss for parallel MCTS
+        int vLoss = atomic_load(&child->virtualLoss);
+        if (vLoss > 0) continue;  // Skip if being explored by another thread
+        
+        // UCB1_RAVE 계산 - c 매개변수 활용
+        double exploitation = 0.0;
+        double exploration = 0.0;
+        
+        if (atomic_load(&child->visits) == 0) {
+            bestValue = AI_INFINITY + child->priorScore;
+        } else {
+            int visits = atomic_load(&child->visits);
+            exploitation = child->score / visits;
+            
+            // c 매개변수를 exploration에 사용
+            exploration = c * sqrt(log(parentVisits) / visits);
+            
+            // RAVE integration
+            if (atomic_load(&child->raveVisits) > 0) {
+                int raveVisits = atomic_load(&child->raveVisits);
+                double beta = sqrt(MCTS_RAVE_K / (3.0 * visits + MCTS_RAVE_K));
+                double raveScore = child->raveScore / raveVisits;
+                
+                exploitation = beta * raveScore + (1.0 - beta) * exploitation;
+            }
+            
+            // Progressive bias
+            if (visits < 50) {
+                exploitation += child->heuristicScore / (visits + 1);
+            }
+        }
+        
+        double value = exploitation + exploration;
+        
+        if (value > bestValue) {
+            bestValue = value;
+            best = child;
+        }
+    }
+    
+    // Apply virtual loss to selected node
+    if (best) {
+        atomic_fetch_add(&best->virtualLoss, MCTS_VIRTUAL_LOSS);
+    }
+    
+    return best;
+}
+
+void expand(MCTSNode* node, char board[BOARD_SIZE][BOARD_SIZE]) {
+    pthread_mutex_lock(&node->lock);
+    
+    if (node->fullyExpanded) {
+        pthread_mutex_unlock(&node->lock);
+        return;
+    }
+    
+    Move moves[MAX_MOVES];
+    int moveCount;
+    int nextPlayer = !node->player;
+    
+    getAllValidMoves(board, nextPlayer, moves, &moveCount);
+    
+    // Progressive widening
+    int maxChildren = (int)sqrt(atomic_load(&node->visits) * 2) + 10;
+    if (maxChildren > moveCount) maxChildren = moveCount;
+    
+    // Score moves for prior probability
+    for (int i = 0; i < moveCount; i++) {
+        // Quick evaluation
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        // Simple heuristic for prior
+        double prior = 0.0;
+        
+        // Position value
+        prior += POSITION_WEIGHTS[getGamePhase(board)][moves[i].r2][moves[i].c2] * 10.0;
+        
+        // Capture value
+        char opponentPiece = (nextPlayer == RED_TURN) ? BLUE : RED;
+        int captures = 0;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                    board[nr][nc] == opponentPiece) {
+                    captures++;
+                }
+            }
+        }
+        prior += captures * 5.0;
+        
+        // Move type preference
+        if (moves[i].moveType == CLONE) {
+            prior += 2.0;  // Slight preference for clone in general
+        }
+        
+        moves[i].score = (short)prior;
+    }
+    
+    // Sort by prior
+    for (int i = 0; i < moveCount - 1; i++) {
+        for (int j = i + 1; j < moveCount; j++) {
+            if (moves[j].score > moves[i].score) {
+                Move temp = moves[i];
+                moves[i] = moves[j];
+                moves[j] = temp;
+            }
+        }
+    }
+    
+    // Expand top moves
+    if (node->childCapacity < maxChildren) {
+        node->childCapacity = maxChildren + 10;
+        node->children = (MCTSNode**)realloc(node->children, 
+                                            node->childCapacity * sizeof(MCTSNode*));
+    }
+    
+    for (int i = node->childCount; i < maxChildren && i < moveCount; i++) {
+        MCTSNode* child = createMCTSNode(moves[i], nextPlayer, node);
+        if (child) {
+            child->priorScore = moves[i].score / 100.0;  // Normalize
+            node->children[node->childCount++] = child;
+        }
+    }
+    
+    if (node->childCount >= moveCount) {
+        node->fullyExpanded = 1;
+    }
+    
+    pthread_mutex_unlock(&node->lock);
+}
+
+double simulate(char board[BOARD_SIZE][BOARD_SIZE], int startingPlayer) {
+    char simBoard[BOARD_SIZE][BOARD_SIZE];
+    memcpy(simBoard, board, sizeof(simBoard));
+    
+    int currentPlayer = startingPlayer;
+    int moveCount = 0;
+    int passCount = 0;
+    int maxSimMoves = 20;  // Limit simulation length
+    
+    while (moveCount < maxSimMoves && passCount < 2) {
+        Move moves[MAX_MOVES];
+        int numMoves;
+        
+        getAllValidMoves(simBoard, currentPlayer, moves, &numMoves);
+        
+        if (numMoves == 0) {
+            passCount++;
+            currentPlayer = !currentPlayer;
+            continue;
+        }
+        
+        passCount = 0;
+        
+        // Smart move selection with epsilon-greedy
+        Move selectedMove;
+        if (rand() % 100 < 80) {  // 80% greedy
+            // Score moves quickly
+            int bestIdx = 0;
+            double bestScore = -1000.0;
+            
+            for (int i = 0; i < numMoves && i < 10; i++) {  // Evaluate top 10
+                double score = 0.0;
+                
+                // Position value
+                score += POSITION_WEIGHTS[getGamePhase(simBoard)][moves[i].r2][moves[i].c2] * 10.0;
+                
+                // Immediate captures
+                char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+                for (int dr = -1; dr <= 1; dr++) {
+                    for (int dc = -1; dc <= 1; dc++) {
+                        if (dr == 0 && dc == 0) continue;
+                        int nr = moves[i].r2 + dr;
+                        int nc = moves[i].c2 + dc;
+                        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                            simBoard[nr][nc] == opponentPiece) {
+                            score += 5.0;
+                        }
+                    }
+                }
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestIdx = i;
+                }
+            }
+            
+            selectedMove = moves[bestIdx];
+        } else {
+            // Random move
+            selectedMove = moves[rand() % numMoves];
+        }
+        
+        makeMove(simBoard, selectedMove);
+        currentPlayer = !currentPlayer;
+        moveCount++;
+    }
+    
+    // Evaluate final position
+    double eval = evaluateBoard(simBoard, startingPlayer, 0);
+    
+    // Convert to win probability
+    return 1.0 / (1.0 + exp(-eval / 100.0));
+}
+
+void backpropagate(MCTSNode* node, double result, Move* moveSequence, int sequenceLength) {
+    MCTSNode* current = node;
+    
+    while (current != NULL) {
+        // Update visit count and score
+        atomic_fetch_add(&current->visits, 1);
+        
+        // Score from the perspective of the node's player
+        double nodeResult = (current->player == RED_TURN) ? result : 1.0 - result;
+        
+        pthread_mutex_lock(&current->lock);
+        current->score += nodeResult;
+        pthread_mutex_unlock(&current->lock);
+        
+        // RAVE update
+        if (current->parent != NULL) {
+            for (int i = 0; i < sequenceLength; i++) {
+                if (current->move.r1 == moveSequence[i].r1 &&
+                    current->move.c1 == moveSequence[i].c1 &&
+                    current->move.r2 == moveSequence[i].r2 &&
+                    current->move.c2 == moveSequence[i].c2) {
+                    atomic_fetch_add(&current->raveVisits, 1);
+                    pthread_mutex_lock(&current->lock);
+                    current->raveScore += nodeResult;
+                    pthread_mutex_unlock(&current->lock);
+                    break;
+                }
+            }
+        }
+        
+        // AMAF update
+        if (current->parent != NULL) {
+            pthread_mutex_lock(&current->parent->lock);
+            for (int i = 0; i < sequenceLength; i++) {
+                Move* m = &moveSequence[i];
+                current->parent->amafScore[m->r1][m->c1][m->r2][m->c2] += nodeResult;
+                current->parent->amafVisits[m->r1][m->c1][m->r2][m->c2]++;
+            }
+            pthread_mutex_unlock(&current->parent->lock);
+        }
+        
+        // Remove virtual loss
+        atomic_fetch_sub(&current->virtualLoss, MCTS_VIRTUAL_LOSS);
+        
+        current = current->parent;
+    }
+}
+
+Move getMCTSBestMove(MCTSNode* root) {
+    Move bestMove = {0, 0, 0, 0, 0, 0};
+    int mostVisits = 0;
+    double bestWinRate = 0.0;
+    
+    for (int i = 0; i < root->childCount; i++) {
+        MCTSNode* child = root->children[i];
+        int visits = atomic_load(&child->visits);
+        
+        if (visits > mostVisits) {
+            mostVisits = visits;
+            bestMove = child->move;
+            bestWinRate = visits > 0 ? child->score / visits : 0.0;
+        }
+    }
+    
+    // Debug output
+    if (root->childCount > 0) {
+        safePrint("MCTS top moves:\n");
+        
+        // Sort children by visits
+        MCTSNode** sorted = (MCTSNode**)malloc(root->childCount * sizeof(MCTSNode*));
+        if (sorted) {
+            memcpy(sorted, root->children, root->childCount * sizeof(MCTSNode*));
+            
+            for (int i = 0; i < root->childCount - 1; i++) {
+                for (int j = i + 1; j < root->childCount; j++) {
+                    if (atomic_load(&sorted[j]->visits) > atomic_load(&sorted[i]->visits)) {
+                        MCTSNode* temp = sorted[i];
+                        sorted[i] = sorted[j];
+                        sorted[j] = temp;
+                    }
+                }
+            }
+            
+            // Show top 5
+            for (int i = 0; i < root->childCount && i < 5; i++) {
+                int visits = atomic_load(&sorted[i]->visits);
+                double winRate = visits > 0 ? sorted[i]->score / visits : 0.0;
+                
+                safePrint("  (%d,%d)->(%d,%d): visits=%d, win=%.1f%%",
+                         sorted[i]->move.r1 + 1, sorted[i]->move.c1 + 1,
+                         sorted[i]->move.r2 + 1, sorted[i]->move.c2 + 1,
+                         visits, winRate * 100.0);
+                
+                if (atomic_load(&sorted[i]->raveVisits) > 0) {
+                    double raveWin = sorted[i]->raveScore / atomic_load(&sorted[i]->raveVisits);
+                    safePrint(", rave=%.1f%%", raveWin * 100.0);
+                }
+                
+                safePrint("\n");
+            }
+            
+            free(sorted);
+        }
+        
+        safePrint("Selected: (%d,%d)->(%d,%d) with %.1f%% win rate\n",
+                 bestMove.r1 + 1, bestMove.c1 + 1,
+                 bestMove.r2 + 1, bestMove.c2 + 1,
+                 bestWinRate * 100.0);
+    }
+    
+    return bestMove;
+}
+
+
+void* mctsWorker(void* arg) {
+    MCTSWorkerData* data = (MCTSWorkerData*)arg;
+    int localIterations = 0;
+    
+    while (1) {
+        // 더 자주 시간 체크 (10회마다)
+        if (localIterations % 10 == 0) {
+            if (elapsedSeconds() >= data->timeLimit * 0.95) {
+                break;
+            }
+            if (atomic_load(data->iterationCount) >= MCTS_ITERATIONS) {
+                break;
+            }
+        }
+        
+        // Selection
+        MCTSNode* current = data->root;
+        char board[BOARD_SIZE][BOARD_SIZE];
+        memcpy(board, data->board, sizeof(board));
+        
+        Move moveSequence[100];
+        int sequenceLength = 0;
+        
+        if (!current) break;
+        
+        while (current->childCount > 0 && atomic_load(&current->visits) > MCTS_EXPANSION_THRESHOLD) {
+            current = selectBestChild(current, MCTS_C);
+            if (!current) break;
+            
+            makeMove(board, current->move);
+            moveSequence[sequenceLength++] = current->move;
+        }
+        
+        if (!current) continue;
+        
+        // Expansion
+        if (atomic_load(&current->visits) > 0 && !current->fullyExpanded) {
+            expand(current, board);
+            
+            if (current->childCount > 0) {
+                current = current->children[0];
+                makeMove(board, current->move);
+                moveSequence[sequenceLength++] = current->move;
+            }
+        }
+        
+        // Simulation
+        double result = simulate(board, data->playerId);
+        
+        // Backpropagation
+        backpropagate(current, result, moveSequence, sequenceLength);
+        
+        atomic_fetch_add(data->iterationCount, 1);
+        localIterations++;
+        
+        // 타임아웃 체크
+        if (elapsedSeconds() > data->timeLimit) {
+            break;
+        }
+    }
+    
+    return NULL;
+}
+
+
+Move getParallelMCTSMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    // *** 중요: 시간 측정 초기화를 맨 처음에! ***
+    clock_gettime(CLOCK_MONOTONIC, &searchStart);
+    atomic_store(&timeUp, 0);
+    atomic_store(&nodeCount, 0);
+    
+    // 노드 풀 초기화
+    if (!nodePool) {
+        nodePool = (MCTSNode*)calloc(MCTS_NODE_POOL_SIZE, sizeof(MCTSNode));
+        if (!nodePool) {
+            safePrint("MCTS: Failed to allocate node pool, using fallback\n");
+            return getHybridAlphaBetaMove(board, currentPlayer);
+        }
+    }
+    
+    pthread_mutex_lock(&nodePoolMutex);
+    nodePoolIndex = 0;
+    pthread_mutex_unlock(&nodePoolMutex);
+    
+    // 유효한 움직임 확인
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    if (moveCount == 0) {
+        return (Move){0, 0, 0, 0, 0, 0};
+    }
+    
+    // 움직임이 너무 적으면 알파베타 사용
+    if (moveCount < 5) {
+        safePrint("Too few moves for MCTS (%d), using alpha-beta\n", moveCount);
+        return getHybridAlphaBetaMove(board, currentPlayer);
+    }
+    
+    // 시간이 너무 적으면 빠른 평가
+    if (timeAllocated < 0.5) {
+        safePrint("Insufficient time for MCTS (%.2fs), using quick evaluation\n", timeAllocated);
+        
+        // 빠른 휴리스틱 평가
+        int bestIdx = 0;
+        double bestScore = -AI_INFINITY;
+        char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+        
+        for (int i = 0; i < moveCount && i < 10; i++) {
+            double score = POSITION_WEIGHTS[getGamePhase(board)][moves[i].r2][moves[i].c2] * 20.0;
+            
+            // 즉시 캡처 계산
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    if (dr == 0 && dc == 0) continue;
+                    int nr = moves[i].r2 + dr;
+                    int nc = moves[i].c2 + dc;
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                        board[nr][nc] == opponentPiece) {
+                        score += 30.0;
+                    }
+                }
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestIdx = i;
+            }
+        }
+        
+        return moves[bestIdx];
+    }
+    
+    // 게임 상태 백업
+    int savedCurrentPlayer = gameState.currentPlayer;
+    gameState.currentPlayer = currentPlayer;
+    
+    // 루트 노드 생성
+    MCTSNode* root = createMCTSNode((Move){0, 0, 0, 0, 0, 0}, !currentPlayer, NULL);
+    if (!root) {
+        gameState.currentPlayer = savedCurrentPlayer;
+        safePrint("Failed to create root node\n");
+        return moves[0];
+    }
+    
+    // 시간 할당 개선
+    double allocatedTime = timeAllocated * 0.8;  // 80%만 사용
+    
+    safePrint("Parallel MCTS: %d threads, %.2fs allocated, %d moves available\n", 
+             LAZY_SMP_THREADS, allocatedTime, moveCount);
+    
+    // 워커 데이터
+    MCTSWorkerData workerData[LAZY_SMP_THREADS];
+    atomic_int iterationCount;
+    atomic_init(&iterationCount, 0);
+    
+    // 단일 스레드로 먼저 실행 (안정성)
+    workerData[0].root = root;
+    memcpy(workerData[0].board, board, BOARD_SIZE * BOARD_SIZE * sizeof(char));
+    workerData[0].playerId = currentPlayer;
+    workerData[0].iterationCount = &iterationCount;
+    workerData[0].timeLimit = allocatedTime;
+    
+    // 초기 반복 - elapsedSeconds 사용
+    while (elapsedSeconds() < allocatedTime * 0.2 && 
+           atomic_load(&iterationCount) < 1000) {
+        mctsWorkerSingle(&workerData[0]);
+    }
+    
+    // 멀티스레딩 (시간이 충분하면)
+    if (elapsedSeconds() < allocatedTime * 0.5) {
+        pthread_t threads[LAZY_SMP_THREADS];
+        int threadCreated[LAZY_SMP_THREADS] = {0};
+        
+        for (int i = 0; i < LAZY_SMP_THREADS; i++) {
+            workerData[i].root = root;
+            memcpy(workerData[i].board, board, BOARD_SIZE * BOARD_SIZE * sizeof(char));
+            workerData[i].playerId = currentPlayer;
+            workerData[i].iterationCount = &iterationCount;
+            workerData[i].timeLimit = allocatedTime;
+            
+            if (pthread_create(&threads[i], NULL, mctsWorker, &workerData[i]) == 0) {
+                threadCreated[i] = 1;
+            } else {
+                safePrint("Failed to create thread %d\n", i);
+            }
+        }
+        
+        // 스레드 종료 대기
+        for (int i = 0; i < LAZY_SMP_THREADS; i++) {
+            if (threadCreated[i]) {
+                pthread_join(threads[i], NULL);
+            }
+        }
+    }
+    
+    // 게임 상태 복원
+    gameState.currentPlayer = savedCurrentPlayer;
+    
+    // 결과 확인
+    int totalIterations = atomic_load(&iterationCount);
+    double elapsedTime = elapsedSeconds();
+    
+    safePrint("MCTS completed: %d iterations in %.2fs (%.0f iter/sec)\n",
+             totalIterations, elapsedTime,
+             totalIterations / (elapsedTime + 0.001));
+    
+    // 충분한 반복이 안 되었으면 알파베타 폴백
+    if (totalIterations < 500) {
+        safePrint("Insufficient MCTS iterations (%d), using alpha-beta fallback\n", 
+                 totalIterations);
+        freeMCTSTree(root);
+        
+        if (elapsedTime < allocatedTime * 0.5) {
+            return getHybridAlphaBetaMove(board, currentPlayer);
+        } else {
+            return moves[0];  // 시간 부족시 첫 번째 유효한 수
+        }
+    }
+    
+    // 최선의 움직임 선택
+    Move bestMove = getMCTSBestMove(root);
+    
+    // 유효성 검증
+    if (bestMove.r1 == 0 && bestMove.c1 == 0 && 
+        bestMove.r2 == 0 && bestMove.c2 == 0 && moveCount > 0) {
+        safePrint("MCTS returned invalid pass, selecting first valid move\n");
+        bestMove = moves[0];
+    }
+    
+    freeMCTSTree(root);
+    return bestMove;
+}
+
+void mctsWorkerSingle(MCTSWorkerData* data) {
+    // Selection
+    MCTSNode* current = data->root;
+    char board[BOARD_SIZE][BOARD_SIZE];
+    memcpy(board, data->board, sizeof(board));
+    
+    Move moveSequence[100];
+    int sequenceLength = 0;
+    
+    if (!current) return;
+    
+    while (current->childCount > 0 && atomic_load(&current->visits) > MCTS_EXPANSION_THRESHOLD) {
+        current = selectBestChild(current, MCTS_C);
+        if (!current) break;
+        
+        makeMove(board, current->move);
+        moveSequence[sequenceLength++] = current->move;
+    }
+    
+    if (!current) return;
+    
+    // Expansion
+    if (atomic_load(&current->visits) > 0 && !current->fullyExpanded) {
+        expand(current, board);
+        
+        if (current->childCount > 0) {
+            current = current->children[0];
+            makeMove(board, current->move);
+            moveSequence[sequenceLength++] = current->move;
+        }
+    }
+    
+    // Simulation
+    double result = simulate(board, data->playerId);
+    
+    // Backpropagation
+    backpropagate(current, result, moveSequence, sequenceLength);
+    
+    atomic_fetch_add(data->iterationCount, 1);
+}
+
+// Enhanced Alpha-Beta with all optimizations
+int enhancedAlphaBeta(char board[BOARD_SIZE][BOARD_SIZE], int depth, int alpha, int beta, 
+                     int currentPlayer, Move* bestMove, int pvNode, int canNull) {
+    atomic_fetch_add(&nodeCount, 1);
+    
+    // Time check - 더 자주, 더 일찍
+    if ((atomic_load(&nodeCount) & 127) == 0) {  // 128노드마다 (더 자주)
+        double elapsed = elapsedSeconds();
+        if (elapsed > timeAllocated * 0.85) {  // 85%에서 중단
+            atomic_store(&timeUp, 1);
+            return evaluateBoard(board, currentPlayer, depth);
+        }
+        
+        // 시간 예측 - 다음 depth 완료 가능한지 체크
+        if (depth > 4 && elapsed > timeAllocated * 0.6) {
+            double timePerNode = elapsed / atomic_load(&nodeCount);
+            double estimatedNodes = atomic_load(&nodeCount) * 1.5;  // 보수적 추정
+            if (elapsed + (timePerNode * estimatedNodes) > timeAllocated * 0.85) {
+                atomic_store(&timeUp, 1);
+                return evaluateBoard(board, currentPlayer, depth);
+            }
+        }
+    }
+    
+    if (atomic_load(&timeUp)) {
+        return evaluateBoard(board, currentPlayer, depth);
+    }
+    
+    // Terminal node check
+    if (depth == 0 || countPieces(board, EMPTY) == 0 ||
+        countPieces(board, RED) == 0 || countPieces(board, BLUE) == 0) {
+        return evaluateBoard(board, currentPlayer, depth);
+    }
+    
+    // Transposition table lookup
+    unsigned long long hash = computeHash(board);
+    int ttIndex = (hash & HASH_MASK) % HASH_SIZE;
+    TTBucket* bucket = &transpositionTable[ttIndex];
+    TTEntry* ttEntry = NULL;
+    
+    // Find in bucket
+    for (int i = 0; i < BUCKET_SIZE; i++) {
+        if (bucket->entries[i].hash == hash) {
+            ttEntry = &bucket->entries[i];
+            break;
+        }
+    }
+    
+    if (ttEntry && ttEntry->depth >= depth && !pvNode) {
+        if (ttEntry->flag == 0) { // EXACT
+            if (bestMove) *bestMove = ttEntry->bestMove;
+            return ttEntry->score;
+        } else if (ttEntry->flag == 1) { // LOWER
+            alpha = (alpha > ttEntry->score) ? alpha : ttEntry->score;
+        } else if (ttEntry->flag == 2) { // UPPER
+            beta = (beta < ttEntry->score) ? beta : ttEntry->score;
+        }
+        
+        if (alpha >= beta) {
+            if (bestMove) *bestMove = ttEntry->bestMove;
+            return ttEntry->score;
+        }
+    }
+    
+    // Null move pruning - 조건 완화
+    if (canNull && depth >= 3 && !pvNode && 
+        countPieces(board, (currentPlayer == RED_TURN) ? RED : BLUE) > 3) {
+        
+        int R = (depth >= 6) ? 3 : 2;
+        int nullScore = -enhancedAlphaBeta(board, depth - R - 1, -beta, -beta + 1, 
+                                          !currentPlayer, NULL, 0, 0);
+        
+        if (nullScore >= beta) {
+            return beta;
+        }
+    }
+    
+    // Internal iterative deepening
+    if (pvNode && depth >= 6 && (!ttEntry || ttEntry->depth < depth - 2)) {
+        enhancedAlphaBeta(board, depth - 2, alpha, beta, currentPlayer, bestMove, 1, 1);
+    }
+    
+    // Get moves
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    if (moveCount == 0) {
+        // Pass
+        return -enhancedAlphaBeta(board, depth - 1, -beta, -alpha, !currentPlayer, NULL, pvNode, 1);
+    }
+    
+    // Move ordering
+    for (int i = 0; i < moveCount; i++) {
+        moves[i].score = 0;
+        
+        // TT move bonus
+        if (ttEntry && moves[i].r1 == ttEntry->bestMove.r1 && 
+            moves[i].c1 == ttEntry->bestMove.c1 &&
+            moves[i].r2 == ttEntry->bestMove.r2 && 
+            moves[i].c2 == ttEntry->bestMove.c2) {
+            moves[i].score += 20000;
+        }
+        
+        // Killer moves
+        if (depth < AI_MAX_DEPTH) {
+            for (int k = 0; k < 2; k++) {
+                if (moves[i].r1 == killerMoves[depth][k].r1 &&
+                    moves[i].c1 == killerMoves[depth][k].c1 &&
+                    moves[i].r2 == killerMoves[depth][k].r2 &&
+                    moves[i].c2 == killerMoves[depth][k].c2) {
+                    moves[i].score += 10000;
+                    break;
+                }
+            }
+        }
+        
+        // History heuristic
+        moves[i].score += historyTable[moves[i].r1][moves[i].c1][moves[i].r2][moves[i].c2];
+        
+        // Butterfly heuristic (tracks all moves)
+        moves[i].score += butterflyTable[moves[i].r1][moves[i].c1][moves[i].r2][moves[i].c2] / 10;
+        
+        // MVV-LVA for captures
+        char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+        int captures = 0;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                    board[nr][nc] == opponentPiece) {
+                    captures++;
+                }
+            }
+        }
+        moves[i].score += captures * 1000;
+        
+        // Position value
+        moves[i].score += (int)(POSITION_WEIGHTS[getGamePhase(board)][moves[i].r2][moves[i].c2] * 100);
+    }
+    
+    // Sort moves
+    for (int i = 0; i < moveCount - 1; i++) {
+        for (int j = i + 1; j < moveCount; j++) {
+            if (moves[j].score > moves[i].score) {
+                Move temp = moves[i];
+                moves[i] = moves[j];
+                moves[j] = temp;
+            }
+        }
+    }
+    
+    Move localBestMove = moves[0];
+    int bestScore = AI_NEG_INFINITY;
+    int flag = 2; // UPPER
+    int searchedMoves = 0;
+    int quietMoves = 0;
+    
+    // 시간이 부족하면 검색할 움직임 수 제한
+    int maxMoves = moveCount;
+    if (elapsedSeconds() > timeAllocated * 0.7) {
+        maxMoves = (moveCount < 10) ? moveCount : 10;
+    }
+    
+    for (int i = 0; i < maxMoves && !atomic_load(&timeUp); i++) {
+        char newBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(newBoard, board, sizeof(newBoard));
+        makeMove(newBoard, moves[i]);
+        
+        // Update butterfly table
+        butterflyTable[moves[i].r1][moves[i].c1][moves[i].r2][moves[i].c2]++;
+        
+        int score;
+        
+        // Late move reductions
+        int reduction = 0;
+        if (depth >= 4 && i >= 4 && !pvNode && moves[i].score < 1000) {
+            quietMoves++;
+            reduction = lmrTable[depth < 64 ? depth : 63][quietMoves < 64 ? quietMoves : 63];
+            
+            // Don't reduce captures or high-scoring moves
+            if (moves[i].score >= 1000) reduction = 0;
+        }
+        
+        if (i == 0) {
+            // First move - full window
+            score = -enhancedAlphaBeta(newBoard, depth - 1, -beta, -alpha, 
+                                      !currentPlayer, NULL, pvNode, 1);
+        } else {
+            // Zero window search
+            score = -enhancedAlphaBeta(newBoard, depth - 1 - reduction, -alpha - 1, -alpha, 
+                                      !currentPlayer, NULL, 0, 1);
+            
+            if (score > alpha && (reduction > 0 || score < beta)) {
+                // Re-search with full window
+                score = -enhancedAlphaBeta(newBoard, depth - 1, -beta, -alpha, 
+                                          !currentPlayer, NULL, pvNode, 1);
+            }
+        }
+        
+        searchedMoves++;
+        
+        if (score > bestScore) {
+            bestScore = score;
+            localBestMove = moves[i];
+            
+            if (score > alpha) {
+                alpha = score;
+                flag = 0; // EXACT
+                
+                if (score >= beta) {
+                    // Update killer moves
+                    if (depth < AI_MAX_DEPTH) {
+                        if (moves[i].r1 != killerMoves[depth][0].r1 ||
+                            moves[i].c1 != killerMoves[depth][0].c1 ||
+                            moves[i].r2 != killerMoves[depth][0].r2 ||
+                            moves[i].c2 != killerMoves[depth][0].c2) {
+                            killerMoves[depth][1] = killerMoves[depth][0];
+                            killerMoves[depth][0] = moves[i];
+                        }
+                    }
+                    
+                    // Update history
+                    if (moves[i].score < 1000) {  // Only for quiet moves
+                        historyTable[moves[i].r1][moves[i].c1][moves[i].r2][moves[i].c2] += depth * depth;
+                        
+                        // Decay other moves
+                        if (historyTable[moves[i].r1][moves[i].c1][moves[i].r2][moves[i].c2] > 10000) {
+                            for (int a = 0; a < BOARD_SIZE; a++) {
+                                for (int b = 0; b < BOARD_SIZE; b++) {
+                                    for (int c = 0; c < BOARD_SIZE; c++) {
+                                        for (int d = 0; d < BOARD_SIZE; d++) {
+                                            historyTable[a][b][c][d] /= 2;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    flag = 1; // LOWER
+                    break;
+                }
+            }
+        }
+        
+        // Futility pruning
+        if (!pvNode && depth <= 3 && bestScore > -AI_INFINITY/2) {
+            int futilityMargin = 200 * depth;
+            if (bestScore - futilityMargin >= beta) {
+                break;
+            }
+        }
+    }
+    
+    // Store in TT
+    if (!atomic_load(&timeUp)) {
+        // Find replacement slot
+        int replaceIdx = 0;
+        int minDepth = 100;
+        
+        for (int i = 0; i < BUCKET_SIZE; i++) {
+            if (bucket->entries[i].hash == 0 || bucket->entries[i].age != currentAge) {
+                replaceIdx = i;
+                break;
+            }
+            if (bucket->entries[i].depth < minDepth) {
+                minDepth = bucket->entries[i].depth;
+                replaceIdx = i;
+            }
+        }
+        
+        bucket->entries[replaceIdx].hash = hash;
+        bucket->entries[replaceIdx].score = bestScore;
+        bucket->entries[replaceIdx].depth = depth;
+        bucket->entries[replaceIdx].flag = flag;
+        bucket->entries[replaceIdx].bestMove = localBestMove;
+        bucket->entries[replaceIdx].age = currentAge;
+        bucket->entries[replaceIdx].moveCount = searchedMoves;
+    }
+    
+    if (bestMove) *bestMove = localBestMove;
+    return bestScore;
+}
+
+Move getHybridAlphaBetaMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    Move bestMove = {0, 0, 0, 0, 0, 0};
+    Move lastGoodMove = {0, 0, 0, 0, 0, 0};  // 백업용
+    
+    clock_gettime(CLOCK_MONOTONIC, &searchStart);
+    atomic_store(&timeUp, 0);
+    atomic_store(&nodeCount, 0);
+    currentAge++;
+    
+    // 킬러 무브 초기화
+    memset(killerMoves, 0, sizeof(killerMoves));
+    
+    // 히스토리 테이블 감쇠
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            for (int k = 0; k < BOARD_SIZE; k++) {
+                for (int l = 0; l < BOARD_SIZE; l++) {
+                    historyTable[i][j][k][l] /= 2;
+                    butterflyTable[i][j][k][l] /= 2;
+                }
+            }
+        }
+    }
+    
+    // 게임 단계와 시간에 따른 동적 깊이 설정
+    int gamePhase = getGamePhase(board);
+    int emptyCount = countPieces(board, EMPTY);
+    int maxDepth;
+    
+    // 긴급 시간 체크
+    if (timeAllocated < 0.8) {
+        maxDepth = 4;
+        safePrint("EMERGENCY: Very limited time (%.2fs), max_depth=4\n", timeAllocated);
+    } else if (timeAllocated < 1.5) {
+        maxDepth = 5;
+        safePrint("Very limited time (%.2fs), max_depth=5\n", timeAllocated);
+    } else if (timeAllocated < 2.0) {
+        maxDepth = 6;
+        safePrint("Limited time (%.2fs), max_depth=6\n", timeAllocated);
+    } else if (timeAllocated < 3.0) {
+        maxDepth = (gamePhase == 0) ? 7 : (gamePhase == 1) ? 8 : 9;
+    } else {
+        // 정상 시간
+        if (emptyCount < 8) {
+            maxDepth = 10;  // 엔드게임
+        } else if (gamePhase == 0) {
+            maxDepth = 7;   // 오프닝
+        } else if (gamePhase == 1) {
+            maxDepth = 8;   // 미드게임
+        } else {
+            maxDepth = 9;   // 후반
+        }
+    }
+    
+    safePrint("Hybrid Alpha-Beta: phase=%d, empty=%d, max_depth=%d, time=%.2fs\n", 
+             gamePhase, emptyCount, maxDepth, timeAllocated);
+    
+    // 첫 번째 유효한 움직임을 기본값으로 설정
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    if (moveCount == 0) {
+        return bestMove;  // Pass
+    }
+    
+    bestMove = moves[0];
+    lastGoodMove = moves[0];
+    
+    // 움직임이 하나뿐이면 즉시 반환
+    if (moveCount == 1) {
+        safePrint("Only one move available, returning immediately\n");
+        return bestMove;
+    }
+    
+    // 반복 심화 탐색
+    int previousScore = 0;
+    int consecutiveFailures = 0;
+    double lastIterationTime = 0.0;
+    int completedDepth = 0;
+    
+    for (int depth = 1; depth <= maxDepth && !atomic_load(&timeUp); depth++) {
+        double depthStartTime = elapsedSeconds();
+        
+        // 남은 시간 체크
+        double timeUsed = depthStartTime;
+        double timeRemaining = timeAllocated - timeUsed;
+        
+        // 시간 예측 - 이전 반복 시간 기반
+        if (depth > 2 && lastIterationTime > 0) {
+            double estimatedTime = lastIterationTime * 2.2;  // 보수적 추정
+            
+            if (timeUsed + estimatedTime > timeAllocated * 0.85) {
+                safePrint("  Depth %d: Insufficient time (used %.2fs, est next %.2fs)\n", 
+                         depth, timeUsed, estimatedTime);
+                break;
+            }
+        }
+        
+        // 시간이 75% 이상 사용되었으면 중단
+        if (timeUsed > timeAllocated * 0.75) {
+            safePrint("  Time limit approaching (%.1f%%), stopping at depth %d\n", 
+                     (timeUsed / timeAllocated) * 100, depth - 1);
+            break;
+        }
+        
+        Move iterationBest = bestMove;
+        
+        // Aspiration window
+        int alpha = AI_NEG_INFINITY;
+        int beta = AI_INFINITY;
+        
+        if (depth > 3 && abs(previousScore) < AI_INFINITY / 2) {
+            // 이전 점수 기반 윈도우
+            int window = 50;
+            alpha = previousScore - window;
+            beta = previousScore + window;
+        }
+        
+        // 탐색 실행
+        int score = enhancedAlphaBeta(board, depth, alpha, beta, currentPlayer, 
+                                     &iterationBest, 1, 1);
+        
+        // Aspiration 실패시 재탐색
+        if ((score <= alpha || score >= beta) && !atomic_load(&timeUp)) {
+            safePrint("  Aspiration fail at depth %d, re-searching...\n", depth);
+            score = enhancedAlphaBeta(board, depth, AI_NEG_INFINITY, AI_INFINITY, 
+                                     currentPlayer, &iterationBest, 1, 1);
+        }
+        
+        double depthTime = elapsedSeconds() - depthStartTime;
+        lastIterationTime = depthTime;
+        
+        // 시간 초과 확인
+        if (atomic_load(&timeUp)) {
+            safePrint("  Depth %d incomplete (timeout), using depth %d result\n", 
+                     depth, completedDepth);
+            bestMove = lastGoodMove;
+            break;
+        }
+        
+        // 결과 업데이트
+        bestMove = iterationBest;
+        lastGoodMove = iterationBest;  // 백업
+        previousScore = score;
+        completedDepth = depth;
+        
+        // 상태 출력
+        long nodes = atomic_load(&nodeCount);
+        double totalTime = elapsedSeconds();
+        double nps = nodes / (totalTime + 0.001);
+        
+        safePrint("  Depth %d: score=%.2f, nodes=%ld, time=%.2fs (depth:%.2fs), nps=%.0f\n",
+                 depth, score / 100.0, nodes, totalTime, depthTime, nps);
+        
+        // 조기 종료 조건들
+        
+        // 1. 승리/패배 발견
+        if (score > AI_INFINITY/2 || score < -AI_INFINITY/2) {
+            safePrint("  Found winning/losing line!\n");
+            break;
+        }
+        
+        // 2. 시간의 80% 이상 사용
+        if (totalTime > timeAllocated * 0.80) {
+            safePrint("  Approaching time limit (%.1f%%), stopping search\n",
+                     (totalTime / timeAllocated) * 100);
+            break;
+        }
+        
+        // 3. 다음 깊이가 너무 오래 걸릴 것으로 예상
+        if (depth >= 3 && depthTime > timeRemaining * 0.3) {
+            safePrint("  Next depth would likely exceed time limit\n");
+            break;
+        }
+        
+        // 4. 점수가 안정적이면 조기 종료 고려
+        if (depth > 5 && abs(score - previousScore) < 10) {
+            consecutiveFailures++;
+            if (consecutiveFailures >= 2) {
+                safePrint("  Score stable, ending search early\n");
+                break;
+            }
+        } else {
+            consecutiveFailures = 0;
+        }
+        
+        // 5. 엔드게임에서 충분한 깊이 도달
+        if (emptyCount < 8 && depth >= 6) {
+            safePrint("  Sufficient depth for endgame position\n");
+            break;
+        }
+    }
+    
+    // 최종 시간 체크
+    double finalTime = elapsedSeconds();
+    if (finalTime > timeAllocated * 0.90) {
+        safePrint("WARNING: Close to timeout! Used %.2fs of %.2fs (%.1f%%)\n", 
+                 finalTime, timeAllocated, (finalTime / timeAllocated) * 100);
+    }
+    
+    // 최종 통계
+    long totalNodes = atomic_load(&nodeCount);
+    safePrint("Search complete: %ld nodes in %.2fs (%.0f nps), depth %d\n", 
+             totalNodes, finalTime, totalNodes / (finalTime + 0.001), completedDepth);
+    
+    // 움직임 검증
+    if (bestMove.r1 == 0 && bestMove.c1 == 0 && 
+        bestMove.r2 == 0 && bestMove.c2 == 0 && moveCount > 0) {
+        safePrint("ERROR: Alpha-beta returned invalid pass, using first valid move\n");
+        bestMove = moves[0];
+    }
+    
+    return bestMove;
+}
+
+// Tournament Beast - combines all strategies
+Move getTournamentBeastMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    int gamePhase = getGamePhase(board);
+    int moveNumber = 60 - countPieces(board, EMPTY);
+    int emptyCount = countPieces(board, EMPTY);
+    
+    // 재료 차이 계산
+    int myPieces = countPieces(board, (currentPlayer == RED_TURN) ? RED : BLUE);
+    int oppPieces = countPieces(board, (currentPlayer == RED_TURN) ? BLUE : RED);
+    int materialDiff = myPieces - oppPieces;
+    
+    safePrint("Tournament Beast: phase=%d, move=%d, material_diff=%d, empty=%d\n", 
+             gamePhase, moveNumber, materialDiff, emptyCount);
+    
+    // 유효한 움직임 가져오기
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    if (moveCount == 0) {
+        return (Move){0, 0, 0, 0, 0, 0};  // Pass
+    }
+    
+    // 움직임이 하나뿐이면 즉시 반환
+    if (moveCount == 1) {
+        safePrint("Only one move available\n");
+        return moves[0];
+    }
+    
+    // 시간이 매우 부족한 경우 빠른 평가
+    if (timeAllocated < 1.0) {
+        safePrint("EMERGENCY: Using quick evaluation (time=%.2fs)\n", timeAllocated);
+        
+        Move bestMove = moves[0];
+        double bestScore = -AI_INFINITY;
+        char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+        
+        for (int i = 0; i < moveCount && i < 15; i++) {
+            double score = 0.0;
+            
+            // 위치 가치
+            score += POSITION_WEIGHTS[gamePhase][moves[i].r2][moves[i].c2] * 30.0;
+            
+            // 즉시 캡처
+            int captures = 0;
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    if (dr == 0 && dc == 0) continue;
+                    int nr = moves[i].r2 + dr;
+                    int nc = moves[i].c2 + dc;
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                        board[nr][nc] == opponentPiece) {
+                        captures++;
+                    }
+                }
+            }
+            score += captures * 50.0;
+            
+            // 엔드게임에서 클론 선호
+            if (emptyCount < 10 && moves[i].moveType == CLONE) {
+                score += 10.0;
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestMove = moves[i];
+            }
+        }
+        
+        safePrint("Quick eval selected: (%d,%d)->(%d,%d) score=%.1f\n",
+                 bestMove.r1+1, bestMove.c1+1, bestMove.r2+1, bestMove.c2+1, bestScore);
+        return bestMove;
+    }
+    
+    // 오프닝 단계 (15수 이내)
+    if (moveNumber < 15) {
+        Move openingMove = getOpeningBookMove(board, currentPlayer);
+        if (openingMove.r1 != 0 || openingMove.c1 != 0 || 
+            openingMove.r2 != 0 || openingMove.c2 != 0) {
+            return openingMove;
+        }
+        // 오프닝북에 없으면 알파베타
+        safePrint("No opening book move, using alpha-beta\n");
+        return getHybridAlphaBetaMove(board, currentPlayer);
+    }
+    
+    // 엔드게임 처리 개선
+    if (emptyCount < 10) {
+        // 시간이 매우 부족하면 간단한 평가만
+        if (timeAllocated < 2.0) {
+            safePrint("Limited time in endgame, using 1-ply evaluation\n");
+            
+            Move bestMove = moves[0];
+            double bestScore = -AI_INFINITY;
+            
+            for (int i = 0; i < moveCount && i < 20; i++) {
+                char tempBoard[BOARD_SIZE][BOARD_SIZE];
+                memcpy(tempBoard, board, sizeof(tempBoard));
+                makeMove(tempBoard, moves[i]);
+                
+                double score = evaluateBoard(tempBoard, currentPlayer, 0);
+                
+                // 무승부 회피
+                if (abs(materialDiff) > 2) {
+                    int newMyPieces = countPieces(tempBoard, (currentPlayer == RED_TURN) ? RED : BLUE);
+                    int newOppPieces = countPieces(tempBoard, (currentPlayer == RED_TURN) ? BLUE : RED);
+                    if (newMyPieces == newOppPieces) {
+                        score -= 50;  // 무승부 페널티
+                    }
+                }
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = moves[i];
+                }
+            }
+            
+            return bestMove;
+        }
+        
+        safePrint("Using endgame solver\n");
+        return getEndgameSolverMove(board, currentPlayer);
+    }
+    
+    // 중반전 전략 선택
+    
+    // 크게 지고 있을 때 (재료 차이 -5 이상)
+    if (materialDiff < -5) {
+        safePrint("Significantly behind, using deep alpha-beta search\n");
+        return getHybridAlphaBetaMove(board, currentPlayer);
+    }
+    
+    // 약간 지고 있을 때 (-3 ~ -5)
+    if (materialDiff < -3) {
+        // 시간이 충분하고 선택지가 많으면 MCTS 시도
+        if (timeAllocated > 2.0 && moveCount > 15) {
+            safePrint("Behind but have time, trying MCTS for creative play\n");
+            Move mctsMove = getParallelMCTSMove(board, currentPlayer);
+            
+            // MCTS가 실패하면 알파베타로 폴백
+            if (mctsMove.r1 == 0 && mctsMove.c1 == 0 && 
+                mctsMove.r2 == 0 && mctsMove.c2 == 0 && moveCount > 0) {
+                safePrint("MCTS failed, falling back to alpha-beta\n");
+                return getHybridAlphaBetaMove(board, currentPlayer);
+            }
+            
+            return mctsMove;
+        } else {
+            // 시간 부족시 안정적인 알파베타
+            safePrint("Limited time or moves, using alpha-beta\n");
+            return getHybridAlphaBetaMove(board, currentPlayer);
+        }
+    }
+    
+    // 동등하거나 이기고 있을 때 - 기본 알파베타
+    safePrint("Using enhanced alpha-beta (stable choice)\n");
+    return getHybridAlphaBetaMove(board, currentPlayer);
+}
+
+// Pattern learning
+void learnPattern(char board[BOARD_SIZE][BOARD_SIZE], Move move, double outcome) {
+    if (patternCount >= MAX_PATTERNS) return;
+    
+    // Extract 3x3 pattern around destination
+    int r = move.r2;
+    int c = move.c2;
+    
+    if (r >= 1 && r <= 6 && c >= 1 && c <= 6) {
+        Pattern* pattern = &learnedPatterns[patternCount];
+        
+        for (int i = 0; i < PATTERN_SIZE; i++) {
+            for (int j = 0; j < PATTERN_SIZE; j++) {
+                pattern->pattern[i][j] = board[r-1+i][c-1+j];
+            }
+        }
+        
+        pattern->score = outcome * 10.0;
+        pattern->frequency = 1;
+        patternCount++;
+    }
+}
+
+// NNUE Beast - 순수 학습 기반
+Move getNNUEBeastMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    #ifndef HAS_NNUE_WEIGHTS
+    return getHybridAlphaBetaMove(board, currentPlayer);
+    #else
+    
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    if (moveCount == 0) return (Move){0, 0, 0, 0, 0, 0};
+    
+    // Iterative Deepening with NNUE
+    Move bestMove = moves[0];
+    int maxDepth = (timeAllocated < 2.0) ? 6 : 8;
+    
+    for (int depth = 1; depth <= maxDepth && !atomic_load(&timeUp); depth++) {
+        Move iterBest = bestMove;
+        int alpha = AI_NEG_INFINITY;
+        int beta = AI_INFINITY;
+        
+        int bestScore = AI_NEG_INFINITY;
+        
+        for (int i = 0; i < moveCount && !atomic_load(&timeUp); i++) {
+            char newBoard[BOARD_SIZE][BOARD_SIZE];
+            memcpy(newBoard, board, sizeof(newBoard));
+            makeMove(newBoard, moves[i]);
+            
+            int score;
+            if (depth <= 3) {
+                // 얕은 깊이에서는 NNUE 직접 사용
+                score = -nnue_evaluate(newBoard, !currentPlayer);
+            } else {
+                // 깊은 탐색
+                score = -enhancedAlphaBeta(newBoard, depth - 1, -beta, -alpha, 
+                                         !currentPlayer, NULL, 0, 1);
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                iterBest = moves[i];
+                if (score > alpha) alpha = score;
+            }
+            
+            if (alpha >= beta) break;
+        }
+        
+        if (!atomic_load(&timeUp)) {
+            bestMove = iterBest;
+        }
+    }
+    
+    return bestMove;
+    #endif
+}
+
+// Opening Master - 오프닝북 + NNUE
+Move getOpeningMasterMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    int pieceCount = countPieces(board, RED) + countPieces(board, BLUE);
+    
+    if (pieceCount < 25) {
+        // 오프닝북 검색
+        #ifdef HAS_OPENING_BOOK
+        uint32_t hash = compute_board_hash(board);
+        const OpeningEntry* entry = find_opening_move(hash);
+        
+        if (entry && entry->count > 0) {
+            // 상위 3개 중 NNUE로 평가하여 선택
+            Move candidates[3];
+            int scores[3];
+            int numCandidates = (entry->count < 3) ? entry->count : 3;
+            
+            for (int i = 0; i < numCandidates; i++) {
+                candidates[i].r1 = entry->moves[i][0];
+                candidates[i].c1 = entry->moves[i][1];
+                candidates[i].r2 = entry->moves[i][2];
+                candidates[i].c2 = entry->moves[i][3];
+                candidates[i].moveType = getMoveType(
+                    candidates[i].r1, candidates[i].c1,
+                    candidates[i].r2, candidates[i].c2
+                );
+                
+                // NNUE 평가
+                char tempBoard[BOARD_SIZE][BOARD_SIZE];
+                memcpy(tempBoard, board, sizeof(tempBoard));
+                makeMove(tempBoard, candidates[i]);
+                
+                #ifdef HAS_NNUE_WEIGHTS
+                scores[i] = -nnue_evaluate(tempBoard, !currentPlayer);
+                scores[i] += entry->scores[i];  // 오프닝북 점수 가산
+                #else
+                scores[i] = entry->scores[i];
+                #endif
+            }
+            
+            // 최고 점수 선택
+            int bestIdx = 0;
+            for (int i = 1; i < numCandidates; i++) {
+                if (scores[i] > scores[bestIdx]) bestIdx = i;
+            }
+            
+            return candidates[bestIdx];
+        }
+        #endif
+    }
+    
+    // 오프닝북에 없으면 NNUE Beast 사용
+    return getNNUEBeastMove(board, currentPlayer);
+}
+
+// Ultimate AI - 모든 기술 통합
+Move getUltimateAIMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    // 시간 측정 초기화
+    clock_gettime(CLOCK_MONOTONIC, &searchStart);
+    atomic_store(&timeUp, 0);
+    atomic_store(&nodeCount, 0);
+    
+    int gamePhase = getGamePhase(board);
+    int emptyCount = countPieces(board, EMPTY);
+    int moveNumber = 60 - emptyCount;
+    
+    // 재료 평가
+    int myPieces = countPieces(board, (currentPlayer == RED_TURN) ? RED : BLUE);
+    int oppPieces = countPieces(board, (currentPlayer == RED_TURN) ? BLUE : RED);
+    int materialDiff = myPieces - oppPieces;
+    
+    safePrint("Ultimate AI v5: move=%d, phase=%d, material=%d:%d (diff=%d), time=%.2fs\n", 
+             moveNumber, gamePhase, myPieces, oppPieces, materialDiff, timeAllocated);
+    
+    // 유효한 움직임 확인
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    if (moveCount == 0) return (Move){0, 0, 0, 0, 0, 0};
+    if (moveCount == 1) return moves[0];
+    
+    // === 시간 관리 개선 ===
+    double adjustedTime = timeAllocated;
+    
+    // 크게 앞서거나 뒤질 때 시간 조정
+    if (materialDiff > 10) {
+        adjustedTime *= 0.8;  // 앞설 때는 빠르게
+    } else if (materialDiff < -5) {
+        adjustedTime *= 1.1;  // 뒤질 때는 신중하게
+    }
+    
+    // 긴급 상황: 말이 매우 적을 때
+    if (myPieces <= 2) {
+        safePrint("CRITICAL: Only %d pieces left! Maximum safety mode.\n", myPieces);
+        
+        // 모든 수에 대해 안전성 검사
+        Move safestMove = moves[0];
+        int minRisk = AI_INFINITY;
+        
+        for (int i = 0; i < moveCount; i++) {
+            char tempBoard[BOARD_SIZE][BOARD_SIZE];
+            memcpy(tempBoard, board, sizeof(tempBoard));
+            makeMove(tempBoard, moves[i]);
+            
+            // 상대방의 모든 응수 체크
+            Move oppMoves[MAX_MOVES];
+            int oppMoveCount;
+            getAllValidMoves(tempBoard, !currentPlayer, oppMoves, &oppMoveCount);
+            
+            int maxCaptures = 0;
+            for (int j = 0; j < oppMoveCount; j++) {
+                char testBoard[BOARD_SIZE][BOARD_SIZE];
+                memcpy(testBoard, tempBoard, sizeof(testBoard));
+                makeMove(testBoard, oppMoves[j]);
+                
+                int myLoss = myPieces - countPieces(testBoard, (currentPlayer == RED_TURN) ? RED : BLUE);
+                if (myLoss > maxCaptures) {
+                    maxCaptures = myLoss;
+                }
+            }
+            
+            // 위험도가 가장 낮은 수 선택
+            if (maxCaptures < minRisk) {
+                minRisk = maxCaptures;
+                safestMove = moves[i];
+            }
+            
+            // 완전히 안전한 수가 있으면 즉시 선택
+            if (maxCaptures == 0) {
+                safePrint("Found completely safe move!\n");
+                return moves[i];
+            }
+        }
+        
+        safePrint("Selected safest move with risk level: %d\n", minRisk);
+        return safestMove;
+    }
+    
+    // 긴급 시간 체크
+    if (adjustedTime < 0.8) {
+        return getUltraFastMove(board, currentPlayer, moves, moveCount, materialDiff);
+    }
+    
+    // === 게임 단계별 전략 (안전성 강화) ===
+    
+    // 1. 초반 (0-15수) - 안전성을 최우선으로
+    if (moveNumber <= 15) {
+        // 초반에는 특히 안전성이 중요
+        if (materialDiff < 0) {
+            // 이미 뒤처지고 있으면 더욱 신중하게
+            safePrint("Behind in opening, playing extra safe\n");
+            
+            Move safestMove = moves[0];
+            double bestSafety = -AI_INFINITY;
+            
+            for (int i = 0; i < moveCount && i < 20; i++) {
+                char tempBoard[BOARD_SIZE][BOARD_SIZE];
+                memcpy(tempBoard, board, sizeof(tempBoard));
+                makeMove(tempBoard, moves[i]);
+                
+                // 안전성 점수
+                double safety = evaluateBoard(tempBoard, currentPlayer, 0);
+                
+                // 즉시 캡처 위험 체크
+                Move oppMoves[MAX_MOVES];
+                int oppMoveCount;
+                getAllValidMoves(tempBoard, !currentPlayer, oppMoves, &oppMoveCount);
+                
+                int captureRisk = 0;
+                for (int j = 0; j < oppMoveCount && j < 15; j++) {
+                    char testBoard[BOARD_SIZE][BOARD_SIZE];
+                    memcpy(testBoard, tempBoard, sizeof(testBoard));
+                    makeMove(testBoard, oppMoves[j]);
+                    
+                    int myLoss = countPieces(tempBoard, (currentPlayer == RED_TURN) ? RED : BLUE) - 
+                                 countPieces(testBoard, (currentPlayer == RED_TURN) ? RED : BLUE);
+                    if (myLoss > 0) {
+                        captureRisk = 1;
+                        safety -= 1000.0;
+                        break;
+                    }
+                }
+                
+                if (!captureRisk && safety > bestSafety) {
+                    bestSafety = safety;
+                    safestMove = moves[i];
+                }
+            }
+            
+            return safestMove;
+        }
+        
+        if (materialDiff >= 3) {
+            // 우위를 유지하면서 확장
+            return getMaintainAdvantageMove(board, currentPlayer, materialDiff);
+        }
+        return getEnhancedOpeningMove(board, currentPlayer, moves, moveCount);
+    }
+    
+    // 2. 중반전 핵심 (16-40수)
+    if (moveNumber <= 40) {
+        // 큰 우위 (8+ 차이) - 단순화하여 승리 확정
+        if (materialDiff >= 8) {
+            safePrint("Large advantage: Simplifying position\n");
+            return getSimplificationMove(board, currentPlayer, moves, moveCount, adjustedTime);
+        }
+        // 중간 우위 (3-7 차이) - 조심스럽게 유지
+        else if (materialDiff >= 3) {
+            safePrint("Maintaining advantage carefully\n");
+            return getCarefulAdvantageMove(board, currentPlayer, adjustedTime);
+        }
+        // 균형 상태 (-2 ~ +2) - 정밀한 포지션 플레이
+        else if (materialDiff >= -2) {
+            safePrint("Balanced position: Precision play\n");
+            return getPrecisionTacticalMove(board, currentPlayer, adjustedTime);
+        }
+        // 약간 뒤짐 (-3 ~ -7) - 전술적 복잡화
+        else if (materialDiff >= -7) {
+            safePrint("Behind: Creating complications\n");
+            return getTacticalComplicationMove(board, currentPlayer, adjustedTime);
+        }
+        // 크게 뒤짐 (-8 이상) - 극단적 공격
+        else {
+            safePrint("CRITICAL: Maximum aggression required\n");
+            return getDesperationAttackMove(board, currentPlayer, moves, moveCount);
+        }
+    }
+    
+    // 3. 후반전 (41수 이후) - 정확한 계산
+    return getOptimalEndgameMove(board, currentPlayer, adjustedTime);
+}
+
+Move getUltraFastMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                      Move* moves, int moveCount, int materialDiff) {
+    safePrint("Ultra-fast evaluation mode\n");
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+    
+    // 최대 15개만 평가
+    int evalCount = (moveCount < 15) ? moveCount : 15;
+    
+    for (int i = 0; i < evalCount; i++) {
+        double score = 0.0;
+        
+        // 1. 캡처 계산 (가장 중요)
+        int captures = 0;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                    board[nr][nc] == opponentPiece) {
+                    captures++;
+                }
+            }
+        }
+        score += captures * 150.0;
+        
+        // 2. 위치 가치
+        int phase = getGamePhase(board);
+        score += POSITION_WEIGHTS[phase][moves[i].r2][moves[i].c2] * 50.0;
+        
+        // 3. 앞설 때는 중앙, 뒤질 때는 가장자리 선호
+        if (materialDiff > 0) {
+            double centerDist = fabs(moves[i].r2 - 3.5) + fabs(moves[i].c2 - 3.5);
+            score -= centerDist * 10.0;
+        } else {
+            // 뒤질 때는 복잡한 위치 선호
+            if ((moves[i].r2 >= 2 && moves[i].r2 <= 5) && 
+                (moves[i].c2 >= 2 && moves[i].c2 <= 5)) {
+                score += 20.0;
+            }
+        }
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+Move getMaintainAdvantageMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, int materialDiff) {
+    safePrint("Maintaining material advantage strategy\n");
+    
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+    
+    for (int i = 0; i < moveCount && i < 25; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        double score = 0.0;
+        
+        // 1. 재료 변화 확인 (절대 손실 피하기)
+        int newMyPieces = countPieces(tempBoard, playerPiece);
+        int newOppPieces = countPieces(tempBoard, opponentPiece);
+        int newDiff = newMyPieces - newOppPieces;
+        
+        // 재료 손실이면 즉시 배제
+        if (newDiff < materialDiff - 1) {
+            continue;
+        }
+        
+        score += (newDiff - materialDiff) * 200.0;
+        
+        // 2. 안전성 평가
+        Move oppMoves[MAX_MOVES];
+        int oppMoveCount;
+        getAllValidMoves(tempBoard, !currentPlayer, oppMoves, &oppMoveCount);
+        
+        // 상대의 캡처 가능성 체크
+        int maxOppCaptures = 0;
+        for (int j = 0; j < oppMoveCount && j < 10; j++) {
+            int captures = 0;
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    if (dr == 0 && dc == 0) continue;
+                    int nr = oppMoves[j].r2 + dr;
+                    int nc = oppMoves[j].c2 + dc;
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                        tempBoard[nr][nc] == playerPiece) {
+                        captures++;
+                    }
+                }
+            }
+            if (captures > maxOppCaptures) maxOppCaptures = captures;
+        }
+        score -= maxOppCaptures * 100.0;
+        
+        // 3. 포지션 안정성
+        score += evaluateStability(tempBoard, currentPlayer) * 2.0;
+        
+        // 4. 모빌리티 (적당히)
+        score += (moveCount - oppMoveCount) * 5.0;
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+Move getEnhancedOpeningMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                           Move* moves, int moveCount) {
+    // 기존 오프닝북 확인
+    #ifdef HAS_OPENING_BOOK
+    Move bookMove = search_opening_book(board);
+    if (bookMove.r1 != 0 || bookMove.r2 != 0) {
+        return bookMove;
+    }
+    #endif
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+    
+    for (int i = 0; i < moveCount && i < 20; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        double score = 0.0;
+        
+        // 1. 즉각적인 캡처 위험 체크 (최우선!)
+        int isSafe = 1;
+        
+        // 상대방의 모든 가능한 응수 확인
+        Move oppMoves[MAX_MOVES];
+        int oppMoveCount;
+        getAllValidMoves(tempBoard, !currentPlayer, oppMoves, &oppMoveCount);
+        
+        for (int j = 0; j < oppMoveCount; j++) {
+            char testBoard[BOARD_SIZE][BOARD_SIZE];
+            memcpy(testBoard, tempBoard, sizeof(testBoard));
+            makeMove(testBoard, oppMoves[j]);
+            
+            // 내 말이 캡처당했는지 확인
+            int myPiecesAfter = countPieces(testBoard, playerPiece);
+            int myPiecesBefore = countPieces(tempBoard, playerPiece);
+            
+            if (myPiecesAfter < myPiecesBefore) {
+                isSafe = 0;
+                score -= 1000.0;  // 즉시 캡처당하면 큰 페널티
+                break;
+            }
+        }
+        
+        if (!isSafe) {
+            continue;  // 안전하지 않으면 다음 수로
+        }
+        
+        // 2. 중앙 통제 (안전한 경우에만)
+        for (int r = 2; r <= 5; r++) {
+            for (int c = 2; c <= 5; c++) {
+                if (tempBoard[r][c] == playerPiece) {
+                    score += 20.0;
+                    if ((r == 3 || r == 4) && (c == 3 || c == 4)) {
+                        score += 10.0;
+                    }
+                }
+            }
+        }
+        
+        // 3. 즉시 캡처
+        int captures = 0;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                    board[nr][nc] == opponentPiece) {
+                    captures++;
+                }
+            }
+        }
+        score += captures * 60.0;
+        
+        // 4. 모빌리티
+        Move futureMoves[MAX_MOVES];
+        int futureCount;
+        getAllValidMoves(tempBoard, currentPlayer, futureMoves, &futureCount);
+        score += futureCount * 8.0;
+        
+        // 5. 깊이 3 평가 (안전성 포함)
+        Move dummy;
+        int deepEval = -enhancedAlphaBeta(tempBoard, 3, -AI_INFINITY, AI_INFINITY,
+                                         !currentPlayer, &dummy, 0, 1);
+        score += deepEval * 0.01;
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+Move getSimplificationMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                          Move* moves, int moveCount, double timeLimit) {
+    safePrint("Simplification strategy - maintaining large advantage\n");
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+    
+    // 교환을 선호하되, 재료 손실은 피함
+    for (int i = 0; i < moveCount && i < 30; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        double score = 0.0;
+        
+        // 1. 재료 유지/증가
+        int myOld = countPieces(board, playerPiece);
+        int oppOld = countPieces(board, opponentPiece);
+        int myNew = countPieces(tempBoard, playerPiece);
+        int oppNew = countPieces(tempBoard, opponentPiece);
+        
+        int myChange = myNew - myOld;
+        int oppChange = oppNew - oppOld;
+        
+        // 재료 차이가 유지되거나 증가하는지 확인
+        int oldDiff = myOld - oppOld;
+        int newDiff = myNew - oppNew;
+        
+        if (newDiff < oldDiff - 1) {
+            continue;  // 재료 손실은 피함
+        }
+        
+        score += (newDiff - oldDiff) * 150.0;
+        
+        // 2. 교환 선호 (같은 수의 피스가 사라지면 좋음)
+        if (myChange < 0 && oppChange < 0 && myChange == oppChange) {
+            score += 50.0;  // 동등 교환 보너스
+        }
+        
+        // 3. 안정적인 포지션
+        score += evaluateStability(tempBoard, currentPlayer) * 3.0;
+        
+        // 4. 상대 모빌리티 제한
+        Move oppMoves[MAX_MOVES];
+        int oppCount;
+        getAllValidMoves(tempBoard, !currentPlayer, oppMoves, &oppCount);
+        score -= oppCount * 3.0;
+        
+        // 5. 엔드게임으로 빠르게 진입
+        int emptyCount = countPieces(tempBoard, EMPTY);
+        if (emptyCount < 20) {
+            score += (20 - emptyCount) * 2.0;
+        }
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+Move getCarefulAdvantageMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, double timeLimit) {
+    safePrint("Careful advantage maintenance\n");
+    
+    // 깊이를 늘려서 실수 방지
+    Move bestMove = {0, 0, 0, 0, 0, 0};
+    int depth = (timeLimit > 3.0) ? 9 : 7;
+    
+    // 임시로 평가 함수 가중치 조정
+    // 안정성과 재료 유지에 중점
+    
+    enhancedAlphaBeta(board, depth, AI_NEG_INFINITY, AI_INFINITY,
+                     currentPlayer, &bestMove, 1, 1);
+    
+    // 검증: 이 수가 재료 손실로 이어지지 않는지 확인
+    if (bestMove.r1 != 0 || bestMove.r2 != 0) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, bestMove);
+        
+        int myOld = countPieces(board, (currentPlayer == RED_TURN) ? RED : BLUE);
+        int oppOld = countPieces(board, (currentPlayer == RED_TURN) ? BLUE : RED);
+        int myNew = countPieces(tempBoard, (currentPlayer == RED_TURN) ? RED : BLUE);
+        int oppNew = countPieces(tempBoard, (currentPlayer == RED_TURN) ? BLUE : RED);
+        
+        if ((myNew - oppNew) < (myOld - oppOld) - 2) {
+            safePrint("Move would lose material, searching for safer alternative\n");
+            
+            // 더 안전한 수 찾기
+            Move moves[MAX_MOVES];
+            int moveCount;
+            getAllValidMoves(board, currentPlayer, moves, &moveCount);
+            
+            for (int i = 0; i < moveCount; i++) {
+                memcpy(tempBoard, board, sizeof(tempBoard));
+                makeMove(tempBoard, moves[i]);
+                
+                myNew = countPieces(tempBoard, (currentPlayer == RED_TURN) ? RED : BLUE);
+                oppNew = countPieces(tempBoard, (currentPlayer == RED_TURN) ? BLUE : RED);
+                
+                if ((myNew - oppNew) >= (myOld - oppOld)) {
+                    bestMove = moves[i];
+                    break;
+                }
+            }
+        }
+    }
+    
+    return bestMove;
+}
+
+Move getPrecisionTacticalMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, double timeLimit) {
+    safePrint("Precision tactical play\n");
+    
+    // MCTS와 알파베타 조합
+    if (timeLimit > 2.5) {
+        Move mctsMove = getParallelMCTSMove(board, currentPlayer);
+        
+        // MCTS가 유효한 수를 반환했는지 확인
+        if (mctsMove.r1 != 0 || mctsMove.r2 != 0 || mctsMove.c1 != 0 || mctsMove.c2 != 0) {
+            // 알파베타로 검증
+            char tempBoard[BOARD_SIZE][BOARD_SIZE];
+            memcpy(tempBoard, board, sizeof(tempBoard));
+            makeMove(tempBoard, mctsMove);
+            
+            double eval = evaluateBoard(tempBoard, currentPlayer, 0);
+            if (eval > -100) {  // 나쁘지 않은 수면 사용
+                return mctsMove;
+            }
+        }
+    }
+    
+    // 알파베타 폴백
+    Move bestMove = {0, 0, 0, 0, 0, 0};
+    int depth = (timeLimit > 2.0) ? 8 : 6;
+    
+    enhancedAlphaBeta(board, depth, AI_NEG_INFINITY, AI_INFINITY,
+                     currentPlayer, &bestMove, 1, 1);
+    
+    return bestMove;
+}
+
+
+Move getTacticalComplicationMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, double timeLimit) {
+    safePrint("Creating tactical complications\n");
+    
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    Move bestMove = moves[0];
+    double bestComplexity = -AI_INFINITY;
+    
+    for (int i = 0; i < moveCount && i < 30; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        double complexity = 0.0;
+        
+        // 1. 전술적 위협 생성
+        Move myNextMoves[MAX_MOVES];
+        int myNextCount;
+        getAllValidMoves(tempBoard, currentPlayer, myNextMoves, &myNextCount);
+        
+        int threats = 0;
+        char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+        
+        for (int j = 0; j < myNextCount && j < 20; j++) {
+            int captures = 0;
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    if (dr == 0 && dc == 0) continue;
+                    int nr = myNextMoves[j].r2 + dr;
+                    int nc = myNextMoves[j].c2 + dc;
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                        tempBoard[nr][nc] == opponentPiece) {
+                        captures++;
+                    }
+                }
+            }
+            if (captures >= 2) threats++;
+        }
+        complexity += threats * 30.0;
+        
+        // 2. 포지션 복잡도
+        Move oppMoves[MAX_MOVES];
+        int oppCount;
+        getAllValidMoves(tempBoard, !currentPlayer, oppMoves, &oppCount);
+        
+        complexity += (myNextCount + oppCount) * 2.0;
+        
+        // 3. 불안정한 피스들
+        int unstable = 0;
+        for (int r = 0; r < BOARD_SIZE; r++) {
+            for (int c = 0; c < BOARD_SIZE; c++) {
+                if (tempBoard[r][c] != EMPTY && tempBoard[r][c] != BLOCKED) {
+                    int emptyNeighbors = 0;
+                    for (int dr = -1; dr <= 1; dr++) {
+                        for (int dc = -1; dc <= 1; dc++) {
+                            if (dr == 0 && dc == 0) continue;
+                            int nr = r + dr, nc = c + dc;
+                            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                                tempBoard[nr][nc] == EMPTY) {
+                                emptyNeighbors++;
+                            }
+                        }
+                    }
+                    if (emptyNeighbors >= 3) unstable++;
+                }
+            }
+        }
+        complexity += unstable * 5.0;
+        
+        // 4. 기본 평가도 고려
+        double eval = evaluateBoard(tempBoard, currentPlayer, 0);
+        complexity += eval * 0.1;
+        
+        if (complexity > bestComplexity) {
+            bestComplexity = complexity;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+Move getDesperationAttackMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                             Move* moves, int moveCount) {
+    safePrint("Desperation attack mode!\n");
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+    
+    // 모든 수를 평가 (시간 제한 내에서)
+    for (int i = 0; i < moveCount; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        double score = 0.0;
+        
+        // 1. 최대한 많은 캡처
+        int immediateCaptures = 0;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                    board[nr][nc] == opponentPiece) {
+                    immediateCaptures++;
+                }
+            }
+        }
+        score += immediateCaptures * 200.0;
+        
+        // 2. 미래 캡처 가능성
+        Move nextMoves[MAX_MOVES];
+        int nextCount;
+        getAllValidMoves(tempBoard, currentPlayer, nextMoves, &nextCount);
+        
+        int potentialCaptures = 0;
+        for (int j = 0; j < nextCount && j < 15; j++) {
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    if (dr == 0 && dc == 0) continue;
+                    int nr = nextMoves[j].r2 + dr;
+                    int nc = nextMoves[j].c2 + dc;
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                        tempBoard[nr][nc] == opponentPiece) {
+                        potentialCaptures++;
+                    }
+                }
+            }
+        }
+        score += potentialCaptures * 20.0;
+        
+        // 3. 공격적 위치 (상대 진영 침투)
+        if (currentPlayer == RED_TURN) {
+            score += (7 - moves[i].r2) * 30.0;
+        } else {
+            score += moves[i].r2 * 30.0;
+        }
+        
+        // 4. 복잡성 생성
+        score += nextCount * 5.0;
+        
+        // 5. Jump 선호 (더 공격적)
+        if (moves[i].moveType == JUMP) {
+            score += 20.0;
+        }
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    safePrint("Desperation move: score=%.1f, captures possible\n", bestScore);
+    return bestMove;
+}
+
+Move getOptimalEndgameMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, double timeLimit) {
+    int emptyCount = countPieces(board, EMPTY);
+    
+    safePrint("Optimal endgame calculation: %d empty squares\n", emptyCount);
+    
+    // 완전 탐색 가능한 경우
+    if (emptyCount <= 8 && timeLimit > 2.0) {
+        Move bestMove = {0, 0, 0, 0, 0, 0};
+        int depth = (emptyCount <= 6) ? emptyCount + 4 : 12;
+        
+        enhancedAlphaBeta(board, depth, AI_NEG_INFINITY, AI_INFINITY,
+                         currentPlayer, &bestMove, 1, 1);
+        
+        return bestMove;
+    }
+    
+    // 그 외는 강화된 엔드게임 평가
+    return getEndgameSolverMove(board, currentPlayer);
+}
+
+Move getEmergencyMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                     Move* moves, int moveCount, int materialDiff) {
+    safePrint("EMERGENCY MODE: Ultra-fast evaluation\n");
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+    
+    // 최대 10개만 빠르게 평가
+    int evalCount = (moveCount < 10) ? moveCount : 10;
+    
+    for (int i = 0; i < evalCount; i++) {
+        double score = 0.0;
+        
+        // 1. 즉시 캡처 (최우선)
+        int captures = 0;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                    board[nr][nc] == opponentPiece) {
+                    captures++;
+                }
+            }
+        }
+        score += captures * 100.0;
+        
+        // 2. 뒤처질 때는 공격적 위치 선호
+        if (materialDiff < 0) {
+            // 상대 진영 침투 보너스
+            if (currentPlayer == RED_TURN) {
+                score += (7 - moves[i].r2) * 20.0;
+            } else {
+                score += moves[i].r2 * 20.0;
+            }
+        }
+        
+        // 3. 위치 가치
+        score += POSITION_WEIGHTS[getGamePhase(board)][moves[i].r2][moves[i].c2] * 30.0;
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+Move getAggressiveOpeningMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                             Move* moves, int moveCount) {
+    safePrint("Aggressive opening strategy\n");
+    
+    // 오프닝북 확인
+    #ifdef HAS_OPENING_BOOK
+    Move bookMove = search_opening_book(board);
+    if (bookMove.r1 != 0 || bookMove.r2 != 0) {
+        return bookMove;
+    }
+    #endif
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    
+    // 각 움직임을 깊이 5로 평가
+    for (int i = 0; i < moveCount && i < 15; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        // 평가 요소
+        double score = 0.0;
+        
+        // 1. 중앙 통제 (매우 중요)
+        for (int r = 2; r <= 5; r++) {
+            for (int c = 2; c <= 5; c++) {
+                if (tempBoard[r][c] == ((currentPlayer == RED_TURN) ? RED : BLUE)) {
+                    score += 15.0;
+                }
+            }
+        }
+        
+        // 2. 확장 가능성
+        Move futureMoves[MAX_MOVES];
+        int futureCount;
+        getAllValidMoves(tempBoard, currentPlayer, futureMoves, &futureCount);
+        score += futureCount * 5.0;
+        
+        // 3. 깊이 3 미니맥스
+        Move dummy;
+        int deepScore = -enhancedAlphaBeta(tempBoard, 3, -AI_INFINITY, AI_INFINITY,
+                                          !currentPlayer, &dummy, 0, 1);
+        score += deepScore * 0.01;
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+
+Move getCrisisRecoveryMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                          Move* moves, int moveCount, int materialDiff) {
+    safePrint("Crisis recovery: Maximum aggression\n");
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+    
+    // 모든 움직임 평가 (시간 허용 범위 내)
+    int maxEval = (timeAllocated > 2.0) ? moveCount : ((moveCount < 20) ? moveCount : 20);
+    
+    for (int i = 0; i < maxEval; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        double score = 0.0;
+        
+        // 1. 재료 변화 (가장 중요)
+        int newMyPieces = countPieces(tempBoard, (currentPlayer == RED_TURN) ? RED : BLUE);
+        int newOppPieces = countPieces(tempBoard, opponentPiece);
+        int myGain = newMyPieces - countPieces(board, (currentPlayer == RED_TURN) ? RED : BLUE);
+        int oppLoss = countPieces(board, opponentPiece) - newOppPieces;
+        
+        score += (myGain + oppLoss) * 200.0;  // 캡처 최우선
+        
+        // 2. 다중 캡처 기회
+        Move nextMoves[MAX_MOVES];
+        int nextCount;
+        getAllValidMoves(tempBoard, currentPlayer, nextMoves, &nextCount);
+        
+        int potentialCaptures = 0;
+        for (int j = 0; j < nextCount && j < 10; j++) {
+            for (int dr = -1; dr <= 1; dr++) {
+                for (int dc = -1; dc <= 1; dc++) {
+                    if (dr == 0 && dc == 0) continue;
+                    int nr = nextMoves[j].r2 + dr;
+                    int nc = nextMoves[j].c2 + dc;
+                    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                        tempBoard[nr][nc] == opponentPiece) {
+                        potentialCaptures++;
+                    }
+                }
+            }
+        }
+        score += potentialCaptures * 50.0;
+        
+        // 3. 상대 진영 압박
+        if (currentPlayer == RED_TURN) {
+            score += (7 - moves[i].r2) * 30.0;
+        } else {
+            score += moves[i].r2 * 30.0;
+        }
+        
+        // 4. 복잡한 포지션 생성
+        getAllValidMoves(tempBoard, !currentPlayer, nextMoves, &nextCount);
+        score += nextCount * 10.0;  // 상대에게 많은 선택지 = 실수 유도
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    safePrint("Crisis move selected with score %.1f\n", bestScore);
+    return bestMove;
+}
+
+Move getAggressiveComplexMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                             Move* moves, int moveCount) {
+    safePrint("Aggressive complexification\n");
+    
+    // 시간이 충분하면 MCTS 사용
+    if (timeAllocated > 3.0 && moveCount > 15) {
+        return getParallelMCTSMove(board, currentPlayer);
+    }
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    
+    for (int i = 0; i < moveCount && i < 25; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        // 복잡도 + 공격성 점수
+        double score = 0.0;
+        
+        // 1. 전술적 위협 생성
+        char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+        int threats = 0;
+        
+        for (int r = 0; r < BOARD_SIZE; r++) {
+            for (int c = 0; c < BOARD_SIZE; c++) {
+                if (tempBoard[r][c] == EMPTY) {
+                    // 이 빈칸에 놓으면 캡처 가능한가?
+                    int potentialCaptures = 0;
+                    for (int dr = -1; dr <= 1; dr++) {
+                        for (int dc = -1; dc <= 1; dc++) {
+                            if (dr == 0 && dc == 0) continue;
+                            int nr = r + dr, nc = c + dc;
+                            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                                tempBoard[nr][nc] == opponentPiece) {
+                                potentialCaptures++;
+                            }
+                        }
+                    }
+                    if (potentialCaptures >= 2) threats++;
+                }
+            }
+        }
+        score += threats * 40.0;
+        
+        // 2. 양측 모빌리티
+        Move myMoves[MAX_MOVES], oppMoves[MAX_MOVES];
+        int myCount, oppCount;
+        getAllValidMoves(tempBoard, currentPlayer, myMoves, &myCount);
+        getAllValidMoves(tempBoard, !currentPlayer, oppMoves, &oppCount);
+        
+        score += (myCount + oppCount) * 5.0;  // 총 복잡도
+        score += (myCount - oppCount) * 10.0;  // 상대적 우위
+        
+        // 3. 불안정한 포지션
+        int unstablePieces = 0;
+        for (int r = 0; r < BOARD_SIZE; r++) {
+            for (int c = 0; c < BOARD_SIZE; c++) {
+                if (tempBoard[r][c] != EMPTY && tempBoard[r][c] != BLOCKED) {
+                    int emptyNeighbors = 0;
+                    for (int dr = -1; dr <= 1; dr++) {
+                        for (int dc = -1; dc <= 1; dc++) {
+                            if (dr == 0 && dc == 0) continue;
+                            int nr = r + dr, nc = c + dc;
+                            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                                tempBoard[nr][nc] == EMPTY) {
+                                emptyNeighbors++;
+                            }
+                        }
+                    }
+                    if (emptyNeighbors >= 3) unstablePieces++;
+                }
+            }
+        }
+        score += unstablePieces * 8.0;
+        
+        // 4. 깊이 2 평가
+        if (timeAllocated > 2.0) {
+            Move dummy;
+            int eval = -enhancedAlphaBeta(tempBoard, 2, -AI_INFINITY, AI_INFINITY,
+                                         !currentPlayer, &dummy, 0, 1);
+            score += eval * 0.01;
+        }
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+Move getStableSimplifyMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                          Move* moves, int moveCount) {
+    safePrint("Stable simplification\n");
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+    
+    for (int i = 0; i < moveCount; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        double score = 0.0;
+        
+        // 1. 재료 유지
+        int myPieces = countPieces(tempBoard, playerPiece);
+        int oppPieces = countPieces(tempBoard, (currentPlayer == RED_TURN) ? BLUE : RED);
+        score += (myPieces - oppPieces) * 100.0;
+        
+        // 2. 안정성
+        score += evaluateStability(tempBoard, currentPlayer) * 2.0;
+        
+        // 3. 상대 선택지 제한
+        Move oppMoves[MAX_MOVES];
+        int oppCount;
+        getAllValidMoves(tempBoard, !currentPlayer, oppMoves, &oppCount);
+        score -= oppCount * 5.0;
+        
+        // 4. 연결성
+        int groups = countGroups(tempBoard, playerPiece);
+        score -= groups * 20.0;  // 적은 그룹이 좋음
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+Move getPrecisionMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    safePrint("Precision positioning\n");
+    
+    // 시간에 따라 깊이 조정
+    int depth = 7;
+    if (timeAllocated < 2.0) depth = 5;
+    else if (timeAllocated > 3.0) depth = 8;
+    
+    Move bestMove = {0, 0, 0, 0, 0, 0};
+    
+    // 포지션 평가 가중치 임시 조정
+    double savedWeights[3] = {1.0, 2.0, 1.5};  // 기본값 저장
+    
+    // 현재 상황에 맞게 조정
+    int emptyCount = countPieces(board, EMPTY);
+    if (emptyCount < 25) {
+        // 후반으로 갈수록 안정성 중시
+        savedWeights[0] = 0.5;  // 모빌리티 감소
+        savedWeights[1] = 3.0;  // 안정성 증가
+        savedWeights[2] = 1.0;  // 프론티어 감소
+    }
+    
+    enhancedAlphaBeta(board, depth, AI_NEG_INFINITY, AI_INFINITY,
+                     currentPlayer, &bestMove, 1, 1);
+    
+    return bestMove;
+}
+
+
+int countGroups(char board[BOARD_SIZE][BOARD_SIZE], char piece) {
+    int visited[BOARD_SIZE][BOARD_SIZE] = {0};
+    int groups = 0;
+    
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            if (board[i][j] == piece && !visited[i][j]) {
+                groups++;
+                // 간단한 BFS
+                int queue[64][2];
+                int front = 0, rear = 0;
+                queue[rear][0] = i;
+                queue[rear][1] = j;
+                rear++;
+                visited[i][j] = 1;
+                
+                while (front < rear) {
+                    int r = queue[front][0];
+                    int c = queue[front][1];
+                    front++;
+                    
+                    for (int dr = -1; dr <= 1; dr++) {
+                        for (int dc = -1; dc <= 1; dc++) {
+                            if (dr == 0 && dc == 0) continue;
+                            int nr = r + dr, nc = c + dc;
+                            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                                !visited[nr][nc] && board[nr][nc] == piece) {
+                                visited[nr][nc] = 1;
+                                queue[rear][0] = nr;
+                                queue[rear][1] = nc;
+                                rear++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    return groups;
+}
+
+Move getQuickStrategicMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                          Move* moves, int moveCount) {
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+    
+    for (int i = 0; i < moveCount && i < 20; i++) {
+        double score = 0.0;
+        
+        // 시뮬레이션
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        // 1. 재료 변화
+        int myNew = countPieces(tempBoard, playerPiece);
+        int oppNew = countPieces(tempBoard, opponentPiece);
+        int myOld = countPieces(board, playerPiece);
+        int oppOld = countPieces(board, opponentPiece);
+        
+        score += (myNew - myOld) * 100.0;
+        score += (oppOld - oppNew) * 120.0;  // 상대 피스 제거가 더 중요
+        
+        // 2. 포지션 가치
+        int gamePhase = getGamePhase(board);
+        score += POSITION_WEIGHTS[gamePhase][moves[i].r2][moves[i].c2] * 50.0;
+        
+        // 3. 모빌리티
+        Move futureMoves[MAX_MOVES];
+        int futureCount;
+        getAllValidMoves(tempBoard, currentPlayer, futureMoves, &futureCount);
+        score += futureCount * 5.0;
+        
+        // 4. 안전성 (상대의 반격 가능성)
+        getAllValidMoves(tempBoard, !currentPlayer, futureMoves, &futureCount);
+        score -= futureCount * 3.0;
+        
+        // 5. 연결성
+        int connections = 0;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                    tempBoard[nr][nc] == playerPiece) {
+                    connections++;
+                }
+            }
+        }
+        score += connections * 10.0;
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+
+Move getStrategicOpeningMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer,
+                            Move* moves, int moveCount) {
+    safePrint("Strategic opening evaluation\n");
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    
+    // 깊이 5 미니맥스로 각 후보수 평가
+    for (int i = 0; i < moveCount && i < 10; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        // 전략적 평가
+        double score = 0.0;
+        
+        // 1. 중앙 통제 (매우 중요)
+        int centerDist = fabs(moves[i].r2 - 3.5) + fabs(moves[i].c2 - 3.5);
+        score += (7 - centerDist) * 20.0;
+        
+        // 2. 안전한 확장
+        char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+        int safe = 1;
+        for (int dr = -2; dr <= 2; dr++) {
+            for (int dc = -2; dc <= 2; dc++) {
+                if (abs(dr) + abs(dc) > 3) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+                    if (tempBoard[nr][nc] == playerPiece) {
+                        score += 5.0;  // 아군 근처
+                    }
+                }
+            }
+        }
+        
+        // 3. 미래 모빌리티
+        Move futureMoves[MAX_MOVES];
+        int futureCount;
+        getAllValidMoves(tempBoard, currentPlayer, futureMoves, &futureCount);
+        score += futureCount * 3.0;
+        
+        // 4. 깊이 3 검증
+        Move dummy;
+        int deepScore = -enhancedAlphaBeta(tempBoard, 3, -AI_INFINITY, AI_INFINITY,
+                                          !currentPlayer, &dummy, 0, 1);
+        score += deepScore * 0.01;  // 스케일 조정
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+Move getNNUEGuidedMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, int materialDiff) {
+    #ifdef HAS_NNUE_WEIGHTS
+    safePrint("NNUE-guided search\n");
+    
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    // NNUE로 후보수 평가 및 정렬
+    for (int i = 0; i < moveCount; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        moves[i].score = -nnue_evaluate(tempBoard, !currentPlayer);
+    }
+    
+    // 정렬
+    for (int i = 0; i < moveCount - 1; i++) {
+        for (int j = i + 1; j < moveCount; j++) {
+            if (moves[j].score > moves[i].score) {
+                Move temp = moves[i];
+                moves[i] = moves[j];
+                moves[j] = temp;
+            }
+        }
+    }
+    
+    // 상위 5개만 깊이 탐색
+    Move bestMove = moves[0];
+    int bestScore = AI_NEG_INFINITY;
+    int searchDepth = (timeAllocated > 3.0) ? 7 : 5;
+    
+    for (int i = 0; i < moveCount && i < 5; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        Move dummy;
+        int score = -enhancedAlphaBeta(tempBoard, searchDepth, -AI_INFINITY, AI_INFINITY,
+                                      !currentPlayer, &dummy, 0, 1);
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+    #else
+    return getEnhancedAlphaBetaMove(board, currentPlayer);
+    #endif
+}
+
+// 포지션 중심 움직임
+Move getPositionalMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer, int materialDiff) {
+    safePrint("Positional play mode\n");
+    
+    // 포지션 요소에 가중치를 둔 알파베타
+    Move bestMove = {0, 0, 0, 0, 0, 0};
+    
+    // 평가 함수 가중치 조정
+    double savedMobilityWeight = 2.0;
+    double savedStabilityWeight = 3.0;
+    double savedPotentialWeight = 1.5;
+    
+    // 포지션 플레이를 위한 가중치 증가
+    if (materialDiff < -3) {
+        // 뒤처질 때는 모빌리티와 잠재력 중시
+        savedMobilityWeight = 4.0;
+        savedPotentialWeight = 3.0;
+    }
+    
+    int depth = (timeAllocated > 2.5) ? 8 : 6;
+    enhancedAlphaBeta(board, depth, AI_NEG_INFINITY, AI_INFINITY,
+                     currentPlayer, &bestMove, 1, 1);
+    
+    return bestMove;
+}
+
+// 복잡화 움직임 (뒤처질 때)
+Move getComplexifyingMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    safePrint("Seeking complex positions\n");
+    
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    Move bestMove = moves[0];
+    double bestComplexity = -AI_INFINITY;
+    
+    for (int i = 0; i < moveCount && i < 15; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        // 복잡도 계산
+        double complexity = 0.0;
+        
+        // 1. 양측의 움직임 수
+        Move myMoves[MAX_MOVES], oppMoves[MAX_MOVES];
+        int myCount, oppCount;
+        getAllValidMoves(tempBoard, currentPlayer, myMoves, &myCount);
+        getAllValidMoves(tempBoard, !currentPlayer, oppMoves, &oppCount);
+        
+        complexity += (myCount + oppCount) * 2.0;
+        
+        // 2. 프론티어 피스 (불안정한 피스)
+        int frontier = 0;
+        char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+        for (int r = 0; r < BOARD_SIZE; r++) {
+            for (int c = 0; c < BOARD_SIZE; c++) {
+                if (tempBoard[r][c] == playerPiece || tempBoard[r][c] == ((currentPlayer == RED_TURN) ? BLUE : RED)) {
+                    int hasEmpty = 0;
+                    for (int dr = -1; dr <= 1; dr++) {
+                        for (int dc = -1; dc <= 1; dc++) {
+                            if (dr == 0 && dc == 0) continue;
+                            int nr = r + dr, nc = c + dc;
+                            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                                tempBoard[nr][nc] == EMPTY) {
+                                hasEmpty = 1;
+                                break;
+                            }
+                        }
+                        if (hasEmpty) break;
+                    }
+                    if (hasEmpty) frontier++;
+                }
+            }
+        }
+        complexity += frontier * 3.0;
+        
+        // 3. 비대칭성 (양측의 위치 차이)
+        double asymmetry = 0.0;
+        for (int r = 0; r < BOARD_SIZE; r++) {
+            for (int c = 0; c < BOARD_SIZE; c++) {
+                if (tempBoard[r][c] == playerPiece) {
+                    asymmetry += fabs(r - 3.5) + fabs(c - 3.5);
+                }
+            }
+        }
+        complexity += asymmetry * 0.5;
+        
+        // 4. 기본 평가도 포함
+        double eval = evaluateBoard(tempBoard, currentPlayer, 0) * 0.01;
+        complexity += eval;
+        
+        if (complexity > bestComplexity) {
+            bestComplexity = complexity;
+            bestMove = moves[i];
+        }
+    }
+    
+    safePrint("Complexity move: (%d,%d)->(%d,%d) complexity=%.1f\n",
+             bestMove.r1+1, bestMove.c1+1, bestMove.r2+1, bestMove.c2+1, bestComplexity);
+    
+    return bestMove;
+}
+
+Move getSimplifyingMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    safePrint("Simplifying position\n");
+    
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    Move bestMove = moves[0];
+    double bestScore = -AI_INFINITY;
+    
+    for (int i = 0; i < moveCount; i++) {
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        makeMove(tempBoard, moves[i]);
+        
+        // 단순화 점수
+        double score = 0.0;
+        
+        // 1. 재료 유지/증가
+        int myPieces = countPieces(tempBoard, (currentPlayer == RED_TURN) ? RED : BLUE);
+        int oppPieces = countPieces(tempBoard, (currentPlayer == RED_TURN) ? BLUE : RED);
+        score += (myPieces - oppPieces) * 50.0;
+        
+        // 2. 안정적인 포지션
+        score += evaluateStability(tempBoard, currentPlayer);
+        
+        // 3. 적은 움직임 (단순한 포지션)
+        Move futureMoves[MAX_MOVES];
+        int futureCount;
+        getAllValidMoves(tempBoard, !currentPlayer, futureMoves, &futureCount);
+        score -= futureCount * 2.0;  // 상대의 선택지를 줄임
+        
+        // 4. 중앙/안정적인 위치 선호
+        score += POSITION_WEIGHTS[2][moves[i].r2][moves[i].c2] * 30.0;
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = moves[i];
+        }
+    }
+    
+    return bestMove;
+}
+
+// Hybrid MCTS - NNUE 평가 통합
+Move getHybridMCTSMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    // 기본 MCTS에 NNUE 평가 통합
+    MCTSNode* root = createMCTSNode((Move){0, 0, 0, 0, 0, 0}, !currentPlayer, NULL);
+    if (!root) {
+        return getEnhancedAlphaBetaMove(board, currentPlayer);
+    }
+    
+    // Prior 설정에 NNUE 사용
+    #ifdef HAS_NNUE_WEIGHTS
+    // expand 함수에서 NNUE로 prior 계산
+    #endif
+    
+    // 나머지는 기존 MCTS와 동일...
+    return getParallelMCTSMove(board, currentPlayer);
+}
+
+// 완벽한 엔드게임
+Move getPerfectEndgameMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    int emptyCount = countPieces(board, EMPTY);
+    
+    safePrint("Perfect endgame: %d empty squares\n", emptyCount);
+    
+    // 빈 칸이 매우 적으면 완전 탐색
+    if (emptyCount <= 8) {
+        Move bestMove = {0, 0, 0, 0, 0, 0};
+        int depth = (emptyCount <= 6) ? emptyCount + 2 : 10;
+        
+        if (timeAllocated > 2.0) {
+            depth = (emptyCount <= 6) ? 12 : 10;
+        }
+        
+        enhancedAlphaBeta(board, depth, AI_NEG_INFINITY, AI_INFINITY,
+                         currentPlayer, &bestMove, 1, 1);
+        
+        return bestMove;
+    }
+    
+    // 그 외는 엔드게임 솔버 사용
+    return getEndgameSolverMove(board, currentPlayer);
+}
+
+// 강화된 알파베타 (개선된 평가 함수)
+Move getEnhancedAlphaBetaMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    // Tournament Beast의 알파베타를 기반으로
+    // 하지만 평가 함수와 시간 관리 개선
+    
+    Move bestMove = {0, 0, 0, 0, 0, 0};
+    
+    // 동적 깊이 설정
+    int gamePhase = getGamePhase(board);
+    int emptyCount = countPieces(board, EMPTY);
+    int maxDepth;
+    
+    if (timeAllocated < 1.5) {
+        maxDepth = 5;
+    } else if (timeAllocated < 2.5) {
+        maxDepth = 7;
+    } else if (emptyCount < 15) {
+        maxDepth = 10;
+    } else if (gamePhase == 0) {
+        maxDepth = 7;
+    } else {
+        maxDepth = 8;
+    }
+    
+    safePrint("Enhanced Alpha-Beta: depth=%d\n", maxDepth);
+    
+    // 반복 심화
+    for (int depth = 1; depth <= maxDepth && !atomic_load(&timeUp); depth++) {
+        Move iterBest = bestMove;
+        
+        int score = enhancedAlphaBeta(board, depth, AI_NEG_INFINITY, AI_INFINITY,
+                                     currentPlayer, &iterBest, 1, 1);
+        
+        if (!atomic_load(&timeUp)) {
+            bestMove = iterBest;
+            
+            safePrint("  Depth %d: score=%d, move=(%d,%d)->(%d,%d)\n",
+                     depth, score, bestMove.r1+1, bestMove.c1+1, 
+                     bestMove.r2+1, bestMove.c2+1);
+            
+            // 승리/패배 발견 시 조기 종료
+            if (abs(score) > AI_INFINITY/2) {
+                break;
+            }
+        }
+        
+        // 시간 체크
+        if (elapsedSeconds() > timeAllocated * 0.75) {
+            break;
+        }
+    }
+    
+    return bestMove;
+}
+
+// 추가 특화 엔진들...
+Move getTacticalGeniusMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    // 전술적 조합과 희생 특화
+    // 깊은 탐색 + 캡처 확장
+    Move bestMove = {0, 0, 0, 0, 0, 0};
+    
+    // 캡처 움직임 우선순위
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    // 캡처 점수 계산
+    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+    for (int i = 0; i < moveCount; i++) {
+        int captures = 0;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                    board[nr][nc] == opponentPiece) {
+                    captures++;
+                }
+            }
+        }
+        moves[i].score = captures * 1000;
+    }
+    
+    // Quiescence search 포함 깊은 탐색
+    enhancedAlphaBeta(board, 10, AI_NEG_INFINITY, AI_INFINITY,
+                     currentPlayer, &bestMove, 1, 1);
+    
+    return bestMove;
+}
+
+// Endgame solver with perfect play
+// Endgame solver with perfect play
+Move getEndgameSolverMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    Move bestMove = {0, 0, 0, 0, 0, 0};
+    
+    clock_gettime(CLOCK_MONOTONIC, &searchStart);
+    atomic_store(&timeUp, 0);
+    atomic_store(&nodeCount, 0);
+    
+    int emptyCount = countPieces(board, EMPTY);
+    
+    // 빈칸이 1개일 때 특별 처리
+    if (emptyCount == 1) {
+        // 빈칸 위치 찾기
+        int emptyR = -1, emptyC = -1;
+        for (int i = 0; i < BOARD_SIZE; i++) {
+            for (int j = 0; j < BOARD_SIZE; j++) {
+                if (board[i][j] == EMPTY) {
+                    emptyR = i;
+                    emptyC = j;
+                    break;
+                }
+            }
+            if (emptyR != -1) break;
+        }
+        
+        // 빈칸으로 이동할 수 있는 모든 유효한 움직임 찾기
+        Move moves[MAX_MOVES];
+        int moveCount;
+        getAllValidMoves(board, currentPlayer, moves, &moveCount);
+        
+        // 빈칸으로 가는 움직임만 선택
+        for (int i = 0; i < moveCount; i++) {
+            if (moves[i].r2 == emptyR && moves[i].c2 == emptyC) {
+                safePrint("Endgame: Moving to the only empty square (%d,%d)\n", 
+                         emptyR+1, emptyC+1);
+                return moves[i];
+            }
+        }
+        
+        // 빈칸으로 갈 수 없으면 패스
+        safePrint("Endgame: Cannot move to empty square, passing\n");
+        return (Move){0, 0, 0, 0, 0, 0};
+    }
+    
+    int maxDepth;
+    
+    // 시간 기반 깊이 제한 (개선)
+    if (timeAllocated < 1.5) {
+        maxDepth = 4;  // 매우 제한된 시간
+        safePrint("Endgame: Very limited time, depth=%d\n", maxDepth);
+    } else if (timeAllocated < 2.5) {
+        maxDepth = (emptyCount <= 4) ? 6 : 5;  // 제한된 시간
+        safePrint("Endgame: Limited time, depth=%d\n", maxDepth);
+    } else if (emptyCount <= 4) {
+        maxDepth = 8;  // 매우 적은 칸
+    } else if (emptyCount <= 6) {
+        maxDepth = 7;  // 적은 칸
+    } else if (emptyCount <= 8) {
+        maxDepth = 6;  // 보통
+    } else {
+        maxDepth = 5;  // 많은 칸
+    }
+    
+    safePrint("Endgame solver: %d empty squares, searching to depth %d, time=%.2fs\n", 
+             emptyCount, maxDepth, timeAllocated);
+    
+    // Get all valid moves first
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    if (moveCount == 0) {
+        return bestMove;  // Pass
+    }
+    
+    // 움직임이 하나뿐이면 즉시 반환
+    if (moveCount == 1) {
+        safePrint("Only one move available, returning immediately\n");
+        return moves[0];
+    }
+    
+    // 엔드게임에서 반복 움직임 피하기
+    if (emptyCount <= 3 && moveCount > 1) {
+        // 이전 움직임과 다른 움직임 우선 시도
+        for (int i = 0; i < moveCount; i++) {
+            int isRepetitive = 0;
+            
+            for (int j = 0; j < 3; j++) {
+                Move* histMove = &lastMoves[j];
+                if (moves[i].r1 == histMove->r2 && moves[i].c1 == histMove->c2 &&
+                    moves[i].r2 == histMove->r1 && moves[i].c2 == histMove->c1) {
+                    isRepetitive = 1;
+                    break;
+                }
+            }
+            
+            if (!isRepetitive) {
+                // 이 움직임부터 평가
+                Move temp = moves[0];
+                moves[0] = moves[i];
+                moves[i] = temp;
+                break;
+            }
+        }
+    }
+    
+    // 시간이 매우 부족하면 빠른 평가
+    if (timeAllocated < 1.0) {
+        safePrint("Emergency endgame evaluation\n");
+        
+        double bestScore = -AI_INFINITY;
+        for (int i = 0; i < moveCount && i < 10; i++) {
+            char tempBoard[BOARD_SIZE][BOARD_SIZE];
+            memcpy(tempBoard, board, sizeof(tempBoard));
+            makeMove(tempBoard, moves[i]);
+            
+            double score = evaluateBoard(tempBoard, currentPlayer, 0);
+            if (score > bestScore) {
+                bestScore = score;
+                bestMove = moves[i];
+            }
+        }
+        
+        return bestMove;
+    }
+    
+    // Use enhanced alpha-beta with perfect ordering
+    enhancedAlphaBeta(board, maxDepth, AI_NEG_INFINITY, AI_INFINITY, 
+                     currentPlayer, &bestMove, 1, 1);
+    
+    // 시간 초과 체크
+    if (atomic_load(&timeUp)) {
+        safePrint("Endgame search timeout, using best found so far\n");
+    }
+    
+    // 유효성 검증
+    if (bestMove.r1 == 0 && bestMove.c1 == 0 && 
+        bestMove.r2 == 0 && bestMove.c2 == 0 && moveCount > 0) {
+        safePrint("Endgame solver failed, using first valid move\n");
+        bestMove = moves[0];
+    }
+    
+    return bestMove;
+}
+
+// Get AI move - main entry point
+Move getAIMove() {
+    pthread_mutex_lock(&gameMutex);
+    
+    Move bestMove = {0, 0, 0, 0, 0, 0};
+    char board[BOARD_SIZE][BOARD_SIZE];
+    memcpy(board, gameState.board, sizeof(board));
+    int currentPlayer = (my_color == RED) ? RED_TURN : BLUE_TURN;
+    
+    pthread_mutex_unlock(&gameMutex);
+    
+    // 유효한 움직임 확인
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    if (moveCount == 0) {
+        return bestMove;  // Pass
+    }
+    
+    // 시간 할당 - 더 현실적으로 개선
+    int emptyCount = countPieces(board, EMPTY);
+    int moveNumber = 60 - emptyCount;
+    
+    // 단계별 시간 할당 (개선)
+    if (moveNumber < 10) {
+        timeAllocated = TIME_LIMIT_S * 0.8;   // 초반: 3.6초
+    } else if (moveNumber < 30) {
+        timeAllocated = TIME_LIMIT_S * 0.85;  // 중반: 3.825초
+    } else if (emptyCount > 10) {
+        timeAllocated = TIME_LIMIT_S * 0.85;  // 후반 초기: 3.825초
+    } else {
+        // 엔드게임 - 남은 칸 수에 따라 조정
+        if (emptyCount <= 6) {
+            timeAllocated = TIME_LIMIT_S * 0.7;  // 매우 적은 칸: 3.15초
+        } else {
+            timeAllocated = TIME_LIMIT_S * 0.8;  // 적당한 엔드게임: 3.6초
+        }
+    }
+
+    // 네트워크 지연 고려 - 적절한 마진
+    timeAllocated -= 0.3;  // 0.5초는 너무 많음, 0.3초로 줄임
+    
+    // 최소 시간 보장
+    if (timeAllocated < 0.5) {
+        timeAllocated = 0.5;
+    }
+    
+    // 긴급 상황 체크
+    if (timeAllocated < 1.0) {
+        safePrint("WARNING: Very limited time available: %.2fs\n", timeAllocated);
+    }
+    
+    safePrint("\n=== AI THINKING ===\n");
+    safePrint("Engine: %d, Time: %.2fs, Moves: %d, Empty: %d\n", 
+             aiEngine, timeAllocated, moveCount, emptyCount);
+    
+    // 엔진 선택
+// getAIMove 함수 내의 switch문
+switch (aiEngine) {
+    case ENGINE_HYBRID_ALPHABETA:
+        bestMove = getHybridAlphaBetaMove(board, currentPlayer);
+        break;
+        
+    case ENGINE_PARALLEL_MCTS:
+        bestMove = getParallelMCTSMove(board, currentPlayer);
+        break;
+        
+    case ENGINE_NEURAL_PATTERN:
+        bestMove = getNeuralPatternMove(board, currentPlayer);
+        break;
+        
+    case ENGINE_OPENING_BOOK:
+        bestMove = getOpeningBookMove(board, currentPlayer);
+        break;
+        
+    case ENGINE_ENDGAME_SOLVER:
+        bestMove = getEndgameSolverMove(board, currentPlayer);
+        break;
+        
+    case ENGINE_TOURNAMENT_BEAST:
+        bestMove = getTournamentBeastMove(board, currentPlayer);
+        break;
+        
+    case ENGINE_ADAPTIVE_TIME:
+        // 시간 관리 특화 - 복잡도에 따라 시간 배분
+        if (moveCount > 30) {
+            // 선택지가 많으면 MCTS
+            bestMove = getParallelMCTSMove(board, currentPlayer);
+        } else {
+            // 적으면 깊은 알파베타
+            bestMove = getHybridAlphaBetaMove(board, currentPlayer);
+        }
+        break;
+        
+    case ENGINE_LEARNING_ENGINE:
+        // 패턴 학습 엔진
+        bestMove = getNeuralPatternMove(board, currentPlayer);
+        break;
+        
+    case ENGINE_HUMAN_STYLE:
+        // 인간 스타일 - 약간의 랜덤성 추가
+        bestMove = getHybridAlphaBetaMove(board, currentPlayer);
+        // 10% 확률로 두 번째 좋은 수 선택
+        if (rand() % 10 == 0 && moveCount > 1) {
+            Move moves[MAX_MOVES];
+            getAllValidMoves(board, currentPlayer, moves, &moveCount);
+            if (moveCount > 1) {
+                bestMove = moves[1];
+            }
+        }
+        break;
+        
+    case ENGINE_RANDOM_GOOD:
+        // 똑똑한 랜덤 - 상위 5개 중 랜덤
+        {
+            Move moves[MAX_MOVES];
+            getAllValidMoves(board, currentPlayer, moves, &moveCount);
+            if (moveCount > 0) {
+                // 빠른 평가로 상위 5개 선택
+                for (int i = 0; i < moveCount && i < 10; i++) {
+                    char tempBoard[BOARD_SIZE][BOARD_SIZE];
+                    memcpy(tempBoard, board, sizeof(tempBoard));
+                    makeMove(tempBoard, moves[i]);
+                    moves[i].score = (short)evaluateBoard(tempBoard, currentPlayer, 0);
+                }
+                // 정렬
+                for (int i = 0; i < moveCount - 1 && i < 9; i++) {
+                    for (int j = i + 1; j < moveCount && j < 10; j++) {
+                        if (moves[j].score > moves[i].score) {
+                            Move temp = moves[i];
+                            moves[i] = moves[j];
+                            moves[j] = temp;
+                        }
+                    }
+                }
+                // 상위 5개 중 랜덤
+                int topN = (moveCount < 5) ? moveCount : 5;
+                bestMove = moves[rand() % topN];
+            }
+        }
+        break;
+        
+    case ENGINE_NNUE_BEAST:
+        #ifdef HAS_NNUE_WEIGHTS
+        bestMove = getNNUEBeastMove(board, currentPlayer);
+        #else
+        safePrint("NNUE weights not available, using Tournament Beast\n");
+        bestMove = getTournamentBeastMove(board, currentPlayer);
+        #endif
+        break;
+        
+    case ENGINE_OPENING_MASTER:
+        bestMove = getOpeningMasterMove(board, currentPlayer);
+        break;
+        
+    case ENGINE_ULTIMATE_AI:
+        bestMove = getUltimateAIMove(board, currentPlayer);
+        break;
+        
+    case ENGINE_HYBRID_MCTS:
+        // MCTS with NNUE evaluation
+        #ifdef HAS_NNUE_WEIGHTS
+        // MCTS 노드 평가에 NNUE 사용하도록 수정된 버전
+        bestMove = getParallelMCTSMove(board, currentPlayer);
+        #else
+        bestMove = getParallelMCTSMove(board, currentPlayer);
+        #endif
+        break;
+        
+    case ENGINE_TACTICAL_GENIUS:
+        bestMove = getTacticalGeniusMove(board, currentPlayer);
+        break;
+        
+    case ENGINE_STRATEGIC_MASTER:
+        // 전략적 플레이 - 장기 계획
+        {
+            // 위치 평가 중심, 느린 빌드업
+            Move bestMove_local = {0, 0, 0, 0, 0, 0};
+            double bestScore = -AI_INFINITY;
+            
+            Move moves[MAX_MOVES];
+            getAllValidMoves(board, currentPlayer, moves, &moveCount);
+            
+            for (int i = 0; i < moveCount; i++) {
+                char tempBoard[BOARD_SIZE][BOARD_SIZE];
+                memcpy(tempBoard, board, sizeof(tempBoard));
+                makeMove(tempBoard, moves[i]);
+                
+                // 전략적 평가: 모빌리티, 안정성, 영역 통제
+                double score = evaluateMobility(tempBoard, currentPlayer) * 2.0;
+                score += evaluateStability(tempBoard, currentPlayer) * 3.0;
+                score += evaluatePotential(tempBoard, currentPlayer) * 1.5;
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove_local = moves[i];
+                }
+            }
+            
+            bestMove = bestMove_local;
+        }
+        break;
+        
+    case ENGINE_ENDGAME_GOD:
+        // 완벽한 엔드게임 - 더 깊은 탐색
+        if (emptyCount <= 12) {
+            Move endMove = {0, 0, 0, 0, 0, 0};
+            int depth = (emptyCount <= 8) ? emptyCount : 12;
+            
+            // 시간 제한 완화
+            double savedTime = timeAllocated;
+            timeAllocated *= 1.5;  // 50% 더 시간 사용
+            
+            enhancedAlphaBeta(board, depth, AI_NEG_INFINITY, AI_INFINITY,
+                            currentPlayer, &endMove, 1, 1);
+            
+            timeAllocated = savedTime;
+            bestMove = endMove;
+        } else {
+            bestMove = getEndgameSolverMove(board, currentPlayer);
+        }
+        break;
+        
+    case ENGINE_BLITZ_KING:
+        // 초고속 결정 - 1-ply + 휴리스틱
+        {
+            Move moves[MAX_MOVES];
+            getAllValidMoves(board, currentPlayer, moves, &moveCount);
+            
+            if (moveCount > 0) {
+                Move bestMove_local = moves[0];
+                double bestScore = -AI_INFINITY;
+                
+                for (int i = 0; i < moveCount && i < 20; i++) {
+                    char tempBoard[BOARD_SIZE][BOARD_SIZE];
+                    memcpy(tempBoard, board, sizeof(tempBoard));
+                    makeMove(tempBoard, moves[i]);
+                    
+                    // 초고속 평가
+                    double score = 0;
+                    char playerPiece = (currentPlayer == RED_TURN) ? RED : BLUE;
+                    char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+                    
+                    int myCount = countPieces(tempBoard, playerPiece);
+                    int oppCount = countPieces(tempBoard, opponentPiece);
+                    score = (myCount - oppCount) * 20.0;
+                    
+                    // 즉시 캡처 보너스
+                    score += moves[i].score;
+                    
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove_local = moves[i];
+                    }
+                }
+                
+                bestMove = bestMove_local;
+            }
+        }
+        break;
+        
+    case ENGINE_FORTRESS:
+        // 방어 특화 - 안정성과 영역 유지
+        {
+            Move moves[MAX_MOVES];
+            getAllValidMoves(board, currentPlayer, moves, &moveCount);
+            
+            Move bestMove_local = moves[0];
+            double bestScore = -AI_INFINITY;
+            
+            for (int i = 0; i < moveCount; i++) {
+                char tempBoard[BOARD_SIZE][BOARD_SIZE];
+                memcpy(tempBoard, board, sizeof(tempBoard));
+                makeMove(tempBoard, moves[i]);
+                
+                // 방어적 평가
+                double score = evaluateStability(tempBoard, currentPlayer) * 4.0;
+                score -= evaluateFrontier(tempBoard, currentPlayer) * 2.0;  // 프론티어 최소화
+                
+                // 코너와 엣지 선호
+                if ((moves[i].r2 == 0 || moves[i].r2 == 7) && 
+                    (moves[i].c2 == 0 || moves[i].c2 == 7)) {
+                    score += 50.0;  // 코너
+                } else if (moves[i].r2 == 0 || moves[i].r2 == 7 || 
+                          moves[i].c2 == 0 || moves[i].c2 == 7) {
+                    score += 20.0;  // 엣지
+                }
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove_local = moves[i];
+                }
+            }
+            
+            bestMove = bestMove_local;
+        }
+        break;
+        
+    case ENGINE_ASSASSIN:
+        // 공격 특화 - 최대 캡처와 압박
+        {
+            Move moves[MAX_MOVES];
+            getAllValidMoves(board, currentPlayer, moves, &moveCount);
+            
+            Move bestMove_local = moves[0];
+            int maxCaptures = -1;
+            double bestAggression = -AI_INFINITY;
+            
+            char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+            
+            for (int i = 0; i < moveCount; i++) {
+                // 즉시 캡처 계산
+                int captures = 0;
+                for (int dr = -1; dr <= 1; dr++) {
+                    for (int dc = -1; dc <= 1; dc++) {
+                        if (dr == 0 && dc == 0) continue;
+                        int nr = moves[i].r2 + dr;
+                        int nc = moves[i].c2 + dc;
+                        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                            board[nr][nc] == opponentPiece) {
+                            captures++;
+                        }
+                    }
+                }
+                
+                // 공격성 점수
+                double aggression = captures * 100.0;
+                
+                // 상대 영역 침투 보너스
+                if (currentPlayer == RED_TURN) {
+                    aggression += (7 - moves[i].r2) * 10.0;  // 아래쪽 선호
+                } else {
+                    aggression += moves[i].r2 * 10.0;  // 위쪽 선호
+                }
+                
+                // Jump 움직임 보너스
+                if (moves[i].moveType == JUMP) {
+                    aggression += 15.0;
+                }
+                
+                if (aggression > bestAggression || 
+                    (aggression == bestAggression && captures > maxCaptures)) {
+                    bestAggression = aggression;
+                    maxCaptures = captures;
+                    bestMove_local = moves[i];
+                }
+            }
+            
+            bestMove = bestMove_local;
+        }
+        break;
+        
+    default:
+        // 기본값은 Tournament Beast
+        bestMove = getTournamentBeastMove(board, currentPlayer);
+        break;
+}
+    
+    // 반복 움직임 방지 강화
+    static Move recentMoves[5] = {0};
+    static int recentMoveIndex = 0;
+    
+    // 최근 움직임과 비교
+    int isRepetitive = 0;
+    for (int i = 0; i < 5; i++) {
+        Move* recent = &recentMoves[i];
+        // 정확히 반대 움직임인지 확인
+        if (bestMove.r1 == recent->r2 && bestMove.c1 == recent->c2 &&
+            bestMove.r2 == recent->r1 && bestMove.c2 == recent->c1) {
+            isRepetitive = 1;
+            safePrint("Detected exact reverse of recent move %d\n", i);
+            break;
+        }
+    }
+    
+    if (isRepetitive && moveCount > 1) {
+        safePrint("Avoiding repetitive move, finding alternative...\n");
+        
+        // 다른 좋은 움직임 찾기
+        Move alternativeMove = bestMove;
+        double bestAltScore = -AI_INFINITY;
+        
+        for (int i = 0; i < moveCount && i < 20; i++) {
+            int rep = 0;
+            
+            // 반복인지 확인
+            for (int j = 0; j < 5; j++) {
+                Move* recent = &recentMoves[j];
+                if (moves[i].r1 == recent->r2 && moves[i].c1 == recent->c2 &&
+                    moves[i].r2 == recent->r1 && moves[i].c2 == recent->c1) {
+                    rep = 1;
+                    break;
+                }
+            }
+            
+            if (!rep) {
+                // 빠른 평가
+                char tempBoard[BOARD_SIZE][BOARD_SIZE];
+                memcpy(tempBoard, board, sizeof(tempBoard));
+                makeMove(tempBoard, moves[i]);
+                
+                double score = evaluateBoard(tempBoard, currentPlayer, 0);
+                
+                if (score > bestAltScore) {
+                    bestAltScore = score;
+                    alternativeMove = moves[i];
+                }
+            }
+        }
+        
+        if (bestAltScore > -500.0) {  // 너무 나쁘지 않으면 대체
+            bestMove = alternativeMove;
+            safePrint("Selected alternative move with score %.1f\n", bestAltScore);
+        }
+    }
+    
+    // 움직임 검증
+    if (bestMove.r1 == 0 && bestMove.c1 == 0 && 
+        bestMove.r2 == 0 && bestMove.c2 == 0 && moveCount > 0) {
+        safePrint("WARNING: AI returned invalid pass, using first valid move\n");
+        bestMove = moves[0];
+    }
+    
+    // 움직임 기록
+    recentMoves[recentMoveIndex % 5] = bestMove;
+    recentMoveIndex++;
+    
+    // 시간 체크
+    double totalTime = elapsedSeconds();
+    if (totalTime > timeAllocated) {
+        safePrint("WARNING: Exceeded allocated time! Used %.2fs of %.2fs\n", 
+                 totalTime, timeAllocated);
+    }
+    
+    // 1-indexed로 변환
+    bestMove.r1++;
+    bestMove.c1++;
+    bestMove.r2++;
+    bestMove.c2++;
+    
+    return bestMove;
+}
+
+// Get human move
+Move getHumanMove() {
+    Move move = {0, 0, 0, 0, 0, 0};
+    
+    safePrint("\n=== YOUR TURN ===\n");
+    safePrint("Enter move (sx sy tx ty) or '0 0 0 0' to pass: ");
+    fflush(stdout);
+    
+    char input[256];
+    if (fgets(input, sizeof(input), stdin) == NULL) {
+        safePrint("Input error! Using pass.\n");
+        return move;
+    }
+    
+    // Remove newline
+    input[strcspn(input, "\n")] = 0;
+    
+    // Check for quit
+    if (strcmp(input, "quit") == 0 || strcmp(input, "exit") == 0) {
+        safePrint("Exiting...\n");
+        atomic_store(&gameOver, 1);
+        return move;
+    }
+    
+    int sx, sy, tx, ty;
+    int parsed = sscanf(input, "%d %d %d %d", &sx, &sy, &tx, &ty);
+    
+    if (parsed != 4) {
+        safePrint("Invalid format! Expected: 'sx sy tx ty' (e.g., '1 1 2 2')\n");
+        safePrint("Got: '%s' (parsed %d values)\n", input, parsed);
+        return getHumanMove();  // Recursive retry
+    }
+    
+    // Store as-is (server expects 1-indexed)
+    move.r1 = sx;
+    move.c1 = sy;
+    move.r2 = tx;
+    move.c2 = ty;
+    
+    // Validate if not pass
+    if (!(sx == 0 && sy == 0 && tx == 0 && ty == 0)) {
+        if (!isValidMove(sx-1, sy-1, tx-1, ty-1)) {
+            safePrint("Invalid move! ");
+            
+            if (sx < 1 || sx > 8 || sy < 1 || sy > 8 || tx < 1 || tx > 8 || ty < 1 || ty > 8) {
+                safePrint("Coordinates must be between 1 and 8.\n");
+            } else if (gameState.board[sx-1][sy-1] != my_color) {
+                safePrint("You can only move your own pieces (%c).\n", my_color);
+            } else if (gameState.board[tx-1][ty-1] != EMPTY) {
+                safePrint("Destination must be empty.\n");
+            } else {
+                safePrint("Move type not valid (must be adjacent or 2 squares away).\n");
+            }
+            
+            return getHumanMove();  // Recursive retry
+        }
+        
+        move.moveType = getMoveType(sx-1, sy-1, tx-1, ty-1);
+    }
+    
+    return move;
+}
+
+// Network functions
+void sendJSON(cJSON* json) {
+    if (!json || sockfd < 0) return;
+    
+    char* json_str = cJSON_PrintUnformatted(json);
+    if (json_str) {
+        send(sockfd, json_str, strlen(json_str), 0);
+        send(sockfd, "\n", 1, 0);
+        safePrint("[CLIENT->SERVER] %s\n", json_str);
+        free(json_str);
+    }
+}
+
+void sendRegister(const char* username) {
+    cJSON* message = cJSON_CreateObject();
+    cJSON_AddStringToObject(message, "type", "register");
+    cJSON_AddStringToObject(message, "username", username);
+    sendJSON(message);
+    cJSON_Delete(message);
+}
+
+void sendMove(int sx, int sy, int tx, int ty) {
+    // 게임이 끝났거나 내 턴이 아니면 전송하지 않음
+    if (atomic_load(&gameOver) || !atomic_load(&myTurn)) {
+        safePrint("Cannot send move: game over or not my turn\n");
+        return;
+    }
+    
+    cJSON* message = cJSON_CreateObject();
+    cJSON_AddStringToObject(message, "type", "move");
+    cJSON_AddStringToObject(message, "username", my_username);
+    cJSON_AddNumberToObject(message, "sx", sx);
+    cJSON_AddNumberToObject(message, "sy", sy);
+    cJSON_AddNumberToObject(message, "tx", tx);
+    cJSON_AddNumberToObject(message, "ty", ty);
+    sendJSON(message);
+    cJSON_Delete(message);
+}
+
+void updateBoardFromJSON(cJSON* board_array) {
+    if (!board_array || !cJSON_IsArray(board_array)) return;
+    
+    pthread_mutex_lock(&gameMutex);
+    
+    int i = 0;
+    cJSON* row = NULL;
+    cJSON_ArrayForEach(row, board_array) {
+        if (cJSON_IsString(row) && i < BOARD_SIZE) {
+            const char* row_str = row->valuestring;
+            for (int j = 0; j < BOARD_SIZE && row_str[j]; j++) {
+                gameState.board[i][j] = row_str[j];
+            }
+            i++;
+        }
+    }
+    
+    // Update game phase
+    gameState.gamePhase = getGamePhase(gameState.board);
+    
+    pthread_mutex_unlock(&gameMutex);
+}
+
+void printBoard() {
+    pthread_mutex_lock(&gameMutex);
+    
+    safePrint("\n=== Current Board ===\n");
+    safePrint("  1 2 3 4 5 6 7 8\n");
+    
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        safePrint("%d ", i + 1);
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            safePrint("%c ", gameState.board[i][j]);
+        }
+        safePrint("\n");
+    }
+    
+    int red_count = countPieces(gameState.board, RED);
+    int blue_count = countPieces(gameState.board, BLUE);
+    int empty_count = countPieces(gameState.board, EMPTY);
+    
+    safePrint("\nRed: %d, Blue: %d, Empty: %d\n", red_count, blue_count, empty_count);
+    safePrint("You are: %s (%c)\n", my_color == RED ? "Red" : "Blue", my_color);
+    safePrint("====================\n");
+    
+    pthread_mutex_unlock(&gameMutex);
+}
+
+// Message handlers
+void handleRegisterResponse(cJSON* message) {
+    cJSON* type = cJSON_GetObjectItem(message, "type");
+    if (!type || !cJSON_IsString(type)) return;
+    
+    if (strcmp(type->valuestring, "register_ack") == 0) {
+        safePrint("✓ Registration successful! Waiting for another player...\n");
+    } else if (strcmp(type->valuestring, "register_nack") == 0) {
+        cJSON* reason = cJSON_GetObjectItem(message, "reason");
+        if (reason && cJSON_IsString(reason)) {
+            safePrint("✗ Registration failed: %s\n", reason->valuestring);
+        }
+        cleanup();
+        exit(1);
+    }
+}
+
+void handleGameStart(cJSON* message) {
+    pthread_mutex_lock(&gameMutex);
+    
+    safePrint("\n🎮 GAME STARTED! 🎮\n");
+    
+    cJSON* players = cJSON_GetObjectItem(message, "players");
+    if (players && cJSON_IsArray(players)) {
+        cJSON* player1 = cJSON_GetArrayItem(players, 0);
+        cJSON* player2 = cJSON_GetArrayItem(players, 1);
+        
+        if (player1 && player2 && cJSON_IsString(player1) && cJSON_IsString(player2)) {
+            safePrint("Players: %s (Red) vs %s (Blue)\n", 
+                     player1->valuestring, player2->valuestring);
+            
+            if (strcmp(my_username, player1->valuestring) == 0) {
+                my_color = RED;
+                gameState.currentPlayer = RED_TURN;
+                safePrint("You are playing as: Red (R)\n");
+            } else {
+                my_color = BLUE;
+                gameState.currentPlayer = BLUE_TURN;
+                safePrint("You are playing as: Blue (B)\n");
+            }
+        }
+    }
+    
+    cJSON* first_player = cJSON_GetObjectItem(message, "first_player");
+    if (first_player && cJSON_IsString(first_player)) {
+        safePrint("First player: %s\n", first_player->valuestring);
+    }
+    
+    atomic_store(&gameStarted, 1);
+    gameState.moveCount = 0;
+    gameState.lastMoveWasPass = 0;
+    
+    pthread_mutex_unlock(&gameMutex);
+}
+
+void handleYourTurn(cJSON* message) {
+    // 이미 게임이 끝났거나 내 턴이 아니면 무시
+    if (atomic_load(&gameOver) || !atomic_load(&gameStarted)) {
+        return;
+    }
+    
+    safePrint("\n=== YOUR TURN ===\n");
+    
+    cJSON* board = cJSON_GetObjectItem(message, "board");
+    if (board) {
+        updateBoardFromJSON(board);
+        printBoard();
+    }
+    
+    cJSON* timeout = cJSON_GetObjectItem(message, "timeout");
+    if (timeout && cJSON_IsNumber(timeout)) {
+        safePrint("Timeout: %.0f seconds\n", timeout->valuedouble);
+        gameState.timeRemaining = timeout->valuedouble;
+    }
+    
+    atomic_store(&myTurn, 1);
+    
+    // Get move
+    Move bestMove;
+    if (humanMode) {
+        bestMove = getHumanMove();
+    } else {
+        bestMove = getAIMove();
+    }
+    
+    // 움직임을 보내기 전에 여전히 내 턴인지 확인
+    if (!atomic_load(&myTurn) || atomic_load(&gameOver)) {
+        safePrint("Turn changed or game ended, not sending move.\n");
+        return;
+    }
+    
+    if (bestMove.r1 == 0 && bestMove.c1 == 0 && 
+        bestMove.r2 == 0 && bestMove.c2 == 0) {
+        safePrint(">>> Sending PASS\n");
+    } else {
+        safePrint(">>> Sending move: (%d,%d) -> (%d,%d)\n", 
+                 bestMove.r1, bestMove.c1, bestMove.r2, bestMove.c2);
+    }
+    
+    sendMove(bestMove.r1, bestMove.c1, bestMove.r2, bestMove.c2);
+    
+    atomic_store(&myTurn, 0);
+}
+
+void handleGameOver(cJSON* message) {
+    safePrint("\n🏁 GAME OVER! 🏁\n");
+    safePrint("================\n");
+    
+    cJSON* scores = cJSON_GetObjectItem(message, "scores");
+    if (scores && cJSON_IsObject(scores)) {
+        safePrint("Final Scores:\n");
+        
+        cJSON* score = NULL;
+        int my_score = 0, opponent_score = 0;
+        
+        cJSON_ArrayForEach(score, scores) {
+            if (cJSON_IsNumber(score)) {
+                int score_value = (int)score->valuedouble;
+                safePrint("  %s: %d points\n", score->string, score_value);
+                
+                if (strcmp(score->string, my_username) == 0) {
+                    my_score = score_value;
+                } else {
+                    opponent_score = score_value;
+                }
+            }
+        }
+        
+        safePrint("\n");
+        if (my_score > opponent_score) {
+            safePrint("🎉 YOU WIN! 🎉\n");
+        } else if (opponent_score > my_score) {
+            safePrint("😔 You lost.\n");
+        } else {
+            safePrint("🤝 It's a DRAW!\n");
+        }
+    }
+    
+    atomic_store(&gameStarted, 0);
+    atomic_store(&gameOver, 1);
+    atomic_store(&myTurn, 0);
+}
+
+void handleMoveResponse(cJSON* message) {
+    cJSON* type = cJSON_GetObjectItem(message, "type");
+    if (!type || !cJSON_IsString(type)) return;
+    
+    if (strcmp(type->valuestring, "move_ok") == 0) {
+        safePrint("✅ Move accepted!\n");
+    } else if (strcmp(type->valuestring, "invalid_move") == 0) {
+        safePrint("❌ Invalid move!\n");
+        cJSON* reason = cJSON_GetObjectItem(message, "reason");
+        if (reason && cJSON_IsString(reason)) {
+            safePrint("Reason: %s\n", reason->valuestring);
+            // "not your turn" 에러면 턴 상태를 false로 설정
+            if (strcmp(reason->valuestring, "not your turn") == 0) {
+                atomic_store(&myTurn, 0);
+            }
+        }
+    }
+    
+    cJSON* board = cJSON_GetObjectItem(message, "board");
+    if (board) {
+        updateBoardFromJSON(board);
+        printBoard();
+    }
+    
+    cJSON* next_player = cJSON_GetObjectItem(message, "next_player");
+    if (next_player && cJSON_IsString(next_player)) {
+        if (strcmp(next_player->valuestring, my_username) == 0) {
+            // move_ok인 경우에만 턴 유지
+            if (strcmp(type->valuestring, "move_ok") == 0) {
+                atomic_store(&myTurn, 1);
+                safePrint("Still your turn!\n");
+            }
+        } else {
+            atomic_store(&myTurn, 0);
+            safePrint("Waiting for %s...\n", next_player->valuestring);
+        }
+    }
+}
+
+void handlePass(cJSON* message) {
+    safePrint("\n⏭️  A player passed their turn.\n");
+    
+    // 즉시 턴 상태를 업데이트
+    cJSON* next_player = cJSON_GetObjectItem(message, "next_player");
+    if (next_player && cJSON_IsString(next_player)) {
+        if (strcmp(next_player->valuestring, my_username) == 0) {
+            atomic_store(&myTurn, 1);
+            safePrint("It's now your turn!\n");
+            // your_turn 메시지를 기다림
+        } else {
+            atomic_store(&myTurn, 0);
+            safePrint("Waiting for %s...\n", next_player->valuestring);
+        }
+    }
+    
+    // 진행 중인 AI 계산 중단 신호
+    atomic_store(&timeUp, 1);
+}
+
+void handleServerMessage(const char* json_str) {
+    cJSON* message = cJSON_Parse(json_str);
+    if (!message) {
+        safePrint("Failed to parse: %s\n", json_str);
+        return;
+    }
+    
+    safePrint("[SERVER->CLIENT] %s\n", json_str);
+    
+    cJSON* type = cJSON_GetObjectItem(message, "type");
+    if (!type || !cJSON_IsString(type)) {
+        cJSON_Delete(message);
+        return;
+    }
+    
+    const char* type_str = type->valuestring;
+    
+    if (strcmp(type_str, "register_ack") == 0 || 
+        strcmp(type_str, "register_nack") == 0) {
+        handleRegisterResponse(message);
+    } else if (strcmp(type_str, "game_start") == 0) {
+        handleGameStart(message);
+    } else if (strcmp(type_str, "your_turn") == 0) {
+        handleYourTurn(message);
+    } else if (strcmp(type_str, "game_over") == 0) {
+        handleGameOver(message);
+    } else if (strcmp(type_str, "move_ok") == 0 || 
+               strcmp(type_str, "invalid_move") == 0) {
+        handleMoveResponse(message);
+    } else if (strcmp(type_str, "pass") == 0) {
+        handlePass(message);
+    }
+    
+    cJSON_Delete(message);
+}
+
+void* receiveMessages(void* arg) {
+    (void)arg; 
+    char buffer[BUFFER_SIZE];
+    char recv_buffer[BUFFER_SIZE * 2];
+    int recv_len = 0;
+    
+    while (!atomic_load(&gameOver)) {
+        memset(buffer, 0, BUFFER_SIZE);
+        int bytes_received = recv(sockfd, buffer, BUFFER_SIZE - 1, 0);
+        
+        if (bytes_received <= 0) {
+            if (bytes_received == 0) {
+                safePrint("\n💔 Server disconnected.\n");
+            } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                safePrint("\n💔 Connection error: %s\n", strerror(errno));
+            }
+            atomic_store(&gameOver, 1);
+            break;
+        }
+        
+        if (recv_len + bytes_received < BUFFER_SIZE * 2) {
+            memcpy(recv_buffer + recv_len, buffer, bytes_received);
+            recv_len += bytes_received;
+            recv_buffer[recv_len] = '\0';
+            
+            char* start = recv_buffer;
+            char* newline = NULL;
+            
+            while ((newline = strchr(start, '\n')) != NULL) {
+                *newline = '\0';
+                handleServerMessage(start);
+                start = newline + 1;
+            }
+            
+            int remaining = recv_len - (start - recv_buffer);
+            if (remaining > 0) {
+                memmove(recv_buffer, start, remaining);
+            }
+            recv_len = remaining;
+        }
+    }
+    
+    return NULL;
+}
+
+// Initialize AI system
+void initializeAISystem() {
+    safePrint("Initializing AI System...\n");
+    
+    // Initialize random seed
+    srand(time(NULL));
+    
+    // Initialize Zobrist hashing
+    initZobrist();
+    
+    // Initialize LMR table
+    initLMRTable();
+    
+    // Allocate transposition table
+    size_t ttSize = HASH_SIZE * sizeof(TTBucket);
+    transpositionTable = (TTBucket*)calloc(1, ttSize);
+    if (!transpositionTable) {
+        safePrint("Failed to allocate transposition table (%zu bytes)\n", ttSize);
+        exit(1);
+    }
+    
+    // Initialize thread pool
+    initThreadPool();
+    
+    // Allocate MCTS node pool
+    nodePool = (MCTSNode*)malloc(MCTS_NODE_POOL_SIZE * sizeof(MCTSNode));
+    if (!nodePool) {
+        safePrint("Failed to allocate MCTS node pool\n");
+        exit(1);
+    }
+    
+    safePrint("AI System initialized successfully!\n");
+    safePrint("- Transposition table: %zu MB\n", ttSize / (1024 * 1024));
+    safePrint("- MCTS node pool: %d nodes\n", MCTS_NODE_POOL_SIZE);
+    safePrint("- Thread pool: %d threads\n", globalThreadPool ? globalThreadPool->numThreads : 0);
+}
+
+// Cleanup AI system
+void cleanupAISystem() {
+    if (transpositionTable) {
+        free(transpositionTable);
+        transpositionTable = NULL;
+    }
+    
+    if (nodePool) {
+        free(nodePool);
+        nodePool = NULL;
+    }
+    
+    if (openingBook) {
+        free(openingBook);
+        openingBook = NULL;
+    }
+    
+    destroyThreadPool();
+}
+
+// Cleanup
+void cleanup() {
+    if (sockfd >= 0) {
+        close(sockfd);
+        sockfd = -1;
+    }
+    cleanupAISystem();
+}
+
+// Signal handler
+void sigint_handler(int sig) {
+    (void)sig; 
+    safePrint("\n👋 Exiting...\n");
+    atomic_store(&gameOver, 1);
+    cleanup();
+    exit(0);
+}
+
+// Neural pattern move (simplified)
+Move getNeuralPatternMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
+    Move moves[MAX_MOVES];
+    int moveCount;
+    getAllValidMoves(board, currentPlayer, moves, &moveCount);
+    
+    if (moveCount == 0) {
+        return (Move){0, 0, 0, 0, 0, 0};
+    }
+    
+    // Score each move based on patterns
+    for (int i = 0; i < moveCount; i++) {
+        moves[i].score = 0;
+        
+        // Simulate move
+        char tempBoard[BOARD_SIZE][BOARD_SIZE];
+        memcpy(tempBoard, board, sizeof(tempBoard));
+        gameState.currentPlayer = currentPlayer;  // Temporary set
+        makeMove(tempBoard, moves[i]);
+        gameState.currentPlayer = (my_color == RED) ? RED_TURN : BLUE_TURN;  // Restore
+        
+        // Pattern evaluation
+        moves[i].score = (int)(evaluatePatterns(tempBoard, currentPlayer) * 10);
+        
+        // Position value
+        moves[i].score += (int)(POSITION_WEIGHTS[getGamePhase(board)][moves[i].r2][moves[i].c2] * 100);
+        
+        // Immediate material gain
+        char opponentPiece = (currentPlayer == RED_TURN) ? BLUE : RED;
+        for (int dr = -1; dr <= 1; dr++) {
+            for (int dc = -1; dc <= 1; dc++) {
+                if (dr == 0 && dc == 0) continue;
+                int nr = moves[i].r2 + dr;
+                int nc = moves[i].c2 + dc;
+                if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE &&
+                    board[nr][nc] == opponentPiece) {
+                    moves[i].score += 50;
+                }
+            }
+        }
+        
+        // Mobility after move
+        Move futureMoves[MAX_MOVES];
+        int futureMoveCount;
+        getAllValidMoves(tempBoard, currentPlayer, futureMoves, &futureMoveCount);
+        moves[i].score += futureMoveCount * 2;
+    }
+    
+    // Select best scoring move
+    int bestIdx = 0;
+    for (int i = 1; i < moveCount; i++) {
+        if (moves[i].score > moves[bestIdx].score) {
+            bestIdx = i;
+        }
+    }
+    
+    return moves[bestIdx];
+}
+
+int main(int argc, char *argv[]) {
+    struct addrinfo hints, *res;
+    int status;
+    char server_addr[256] = "127.0.0.1";
+    char server_port[32] = "8080";
+    
+    memset(my_username, 0, sizeof(my_username));
+    
+    // Parse command line arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-ip") == 0 && i + 1 < argc) {
+            strcpy(server_addr, argv[++i]);
+        } else if (strcmp(argv[i], "-port") == 0 && i + 1 < argc) {
+            strcpy(server_port, argv[++i]);
+        } else if (strcmp(argv[i], "-username") == 0 && i + 1 < argc) {
+            strcpy(my_username, argv[++i]);
+        } else if (strcmp(argv[i], "-engine") == 0 && i + 1 < argc) {
+            int engine = atoi(argv[++i]);
+            if (engine >= 1 && engine <= 20) {
+                aiEngine = (AIEngineType)engine;
+            }
+        } else if (strcmp(argv[i], "-human") == 0) {
+            humanMode = 1;
+        }
+    }
+    
+    if (strlen(my_username) == 0) {
+        sprintf(my_username, "Player_%d", (int)time(NULL) % 10000);
+    }
+    
+    printf("\n=== OctaFlip Client (Revolutionary AI) ===\n");
+    printf("Username: %s\n", my_username);
+    printf("Server: %s:%s\n", server_addr, server_port);
+    
+    if (humanMode) {
+        printf("Mode: Human Player\n");
+        printf("\nControls:\n");
+        printf("- Enter moves as: sx sy tx ty (e.g., '1 1 2 2')\n");
+        printf("- Pass turn: 0 0 0 0\n");
+        printf("- Quit: type 'quit' or 'exit'\n");
+    } else {
+        const char* engineNames[] = {
+            "Hybrid Alpha-Beta",
+            "Parallel MCTS", 
+            "Neural Pattern",
+            "Opening Book",
+            "Endgame Solver",
+            "Tournament Beast",
+            "Adaptive Time",
+            "Learning Engine",
+            "Human Style",
+            "Random Good",
+            "NNUE Beast",           // 11
+            "Opening Master",       // 12
+            "Ultimate AI",          // 13
+            "Hybrid MCTS",          // 14
+            "Tactical Genius",      // 15
+            "Strategic Master",     // 16
+            "Endgame God",          // 17
+            "Blitz King",           // 18
+            "Fortress",             // 19
+            "Assassin"              // 20
+        };
+
+        
+        printf("AI Engine: %s\n", engineNames[(int)aiEngine - 1]);
+        
+        printf("\nAvailable engines:\n");
+        for (int i = 0; i < 10; i++) {
+            printf("  %d = %s\n", i + 1, engineNames[i]);
+        }
+        printf("\nUsage: %s -engine <1-10> [-human]\n", argv[0]);
+    }
+    
+    // Initialize AI system
+    if (!humanMode) {
+        initializeAISystem();
+    }
+    
+    // Initialize game state
+    memset(&gameState, 0, sizeof(gameState));
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            gameState.board[i][j] = EMPTY;
+        }
+    }
+    gameState.board[0][0] = RED;
+    gameState.board[0][7] = BLUE;
+    gameState.board[7][0] = BLUE;
+    gameState.board[7][7] = RED;
+    
+    // Set up signal handler
+    signal(SIGINT, sigint_handler);
+    
+    // Socket setup
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    
+    status = getaddrinfo(server_addr, server_port, &hints, &res);
+    if (status != 0) {
+        fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+        cleanup();
+        exit(1);
+    }
+    
+    sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (sockfd == -1) {
+        perror("socket error");
+        cleanup();
+        exit(1);
+    }
+    
+    printf("\nConnecting to %s:%s...\n", server_addr, server_port);
+    status = connect(sockfd, res->ai_addr, res->ai_addrlen);
+    if (status == -1) {
+        perror("connect error");
+        cleanup();
+        exit(1);
+    }
+    
+    printf("✅ Connected to server!\n\n");
+    
+    // Send registration
+    sendRegister(my_username);
+    
+    // Create receiver thread
+    pthread_t receiver_thread;
+    if (pthread_create(&receiver_thread, NULL, receiveMessages, NULL) != 0) {
+        perror("pthread_create error");
+        cleanup();
+        exit(1);
+    }
+    
+    // Wait for game to end
+    pthread_join(receiver_thread, NULL);
+    
+    printf("\nGame session ended. Goodbye!\n");
+    freeaddrinfo(res);
+    cleanup();
+    
+    return 0;
+}
