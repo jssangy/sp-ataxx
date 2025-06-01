@@ -80,7 +80,7 @@
 #define MCTS_RAVE_K 1000
 #define MCTS_VIRTUAL_LOSS 3
 #define MCTS_EXPANSION_THRESHOLD 20  // Reduced from 40 for faster expansion
-#define MCTS_NODE_POOL_SIZE 50000
+#define MCTS_NODE_POOL_SIZE 100000
 #define MCTS_TIME_CHECK_INTERVAL 100
 #define MCTS_MIN_ITERATIONS 1000
 
@@ -1885,7 +1885,7 @@ Move getUltimateAIMove(char board[BOARD_SIZE][BOARD_SIZE], int currentPlayer) {
         Move bestMove;
         
         // Special case: very few empty squares - use Endgame God for perfect play
-        if (emptyCount <= 3) {
+        if (emptyCount <= 0) {
             safePrint("Very few empty squares (%d), using Endgame God for perfect play\n", emptyCount);
             
             double savedTime = timeAllocated;
@@ -4237,8 +4237,8 @@ int main(int argc, char *argv[]) {
         printf("AI Engine: %s\n", engineNames[(int)aiEngine - 1]);
         
         printf("\nUltimate AI Features:\n");
-        printf("- Opening (0-27): Tournament Beast + Enhanced NNUE guidance\n");
-        printf("- Midgame (28-50): Extended Hybrid MCTS with Tournament Beast fallback\n");
+        printf("- Opening (0-19): Tournament Beast + Enhanced NNUE guidance\n");
+        printf("- Midgame (20-50): Extended Hybrid MCTS with Tournament Beast fallback\n");
         printf("- Endgame (51+): MCTS-based win focus with Endgame God for perfect endgames\n");
         printf("- Improved stability: Better timeout handling throughout all phases\n");
         
