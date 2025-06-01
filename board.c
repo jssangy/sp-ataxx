@@ -20,6 +20,20 @@
 #define BUFFER_SIZE 4096
 
 // Color definitions (same as before)
+
+#define BOARD_SIZE 8
+#define CELL_SIZE 8
+#define PIECE_SIZE 6
+#define MATRIX_SIZE 64
+#define BOARD_PORT 8081
+#define BUFFER_SIZE 4096
+
+// Game piece definitions
+#define RED 'R'
+#define BLUE 'B'
+#define EMPTY '.'
+#define BLOCKED '#'
+
 #define COLOR_RED_R 255
 #define COLOR_RED_G 0
 #define COLOR_RED_B 0
