@@ -210,54 +210,38 @@ int initLEDMatrix() {
     return 0;
 }
 
-// 그리드 라인 그리기 (내부 2픽셀, 가장자리 1픽셀)
+// 그리드 라인 그리기 (내부 1픽셀, 지정된 위치만)
 void drawGridLines() {
-    // 가로선 그리기
-    for (int i = 0; i <= BOARD_SIZE; i++) {
-        int y = i * CELL_SIZE;
-        if (y >= MATRIX_SIZE) {
-            y = MATRIX_SIZE - 1;
-        }
+    // 그릴 위치 배열: 0, 7, 15, 23, 31, 39, 47, 55, 63
+    int positions[BOARD_SIZE + 1];
+    positions[0] = 0;
+    for (int i = 1; i <= BOARD_SIZE; i++) {
+        positions[i] = i * CELL_SIZE - 1;  // 1*8-1=7, 2*8-1=15, …, 8*8-1=63
+    }
 
-        if (i == 0 || i == BOARD_SIZE) {
-            // 가장자리는 1픽셀
-            for (int x = 0; x < MATRIX_SIZE; x++) {
-                led_canvas_set_pixel(canvas, x, y, COLOR_GRID_OUTER_R, COLOR_GRID_OUTER_G, COLOR_GRID_OUTER_B);
-            }
-        } else {
-            // 내부는 2픽셀
-            for (int x = 0; x < MATRIX_SIZE; x++) {
-                led_canvas_set_pixel(canvas, x, y, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
-                if (y + 1 < MATRIX_SIZE) {
-                    led_canvas_set_pixel(canvas, x, y + 1, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
-                }
-            }
+    // 가로선 그리기
+    for (int idx = 0; idx <= BOARD_SIZE; idx++) {
+        int y = positions[idx];
+        uint8_t r = (y == 0 || y == MATRIX_SIZE - 1) ? COLOR_GRID_OUTER_R : COLOR_GRID_INNER_R;
+        uint8_t g = (y == 0 || y == MATRIX_SIZE - 1) ? COLOR_GRID_OUTER_G : COLOR_GRID_INNER_G;
+        uint8_t b = (y == 0 || y == MATRIX_SIZE - 1) ? COLOR_GRID_OUTER_B : COLOR_GRID_INNER_B;
+        for (int x = 0; x < MATRIX_SIZE; x++) {
+            led_canvas_set_pixel(canvas, x, y, r, g, b);
         }
     }
 
     // 세로선 그리기
-    for (int i = 0; i <= BOARD_SIZE; i++) {
-        int x = i * CELL_SIZE;
-        if (x >= MATRIX_SIZE) {
-            x = MATRIX_SIZE - 1;
-        }
-
-        if (i == 0 || i == BOARD_SIZE) {
-            // 가장자리는 1픽셀
-            for (int y = 0; y < MATRIX_SIZE; y++) {
-                led_canvas_set_pixel(canvas, x, y, COLOR_GRID_OUTER_R, COLOR_GRID_OUTER_G, COLOR_GRID_OUTER_B);
-            }
-        } else {
-            // 내부는 2픽셀
-            for (int y = 0; y < MATRIX_SIZE; y++) {
-                led_canvas_set_pixel(canvas, x, y, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
-                if (x + 1 < MATRIX_SIZE) {
-                    led_canvas_set_pixel(canvas, x + 1, y, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
-                }
-            }
+    for (int idx = 0; idx <= BOARD_SIZE; idx++) {
+        int x = positions[idx];
+        uint8_t r = (x == 0 || x == MATRIX_SIZE - 1) ? COLOR_GRID_OUTER_R : COLOR_GRID_INNER_R;
+        uint8_t g = (x == 0 || x == MATRIX_SIZE - 1) ? COLOR_GRID_OUTER_G : COLOR_GRID_INNER_G;
+        uint8_t b = (x == 0 || x == MATRIX_SIZE - 1) ? COLOR_GRID_OUTER_B : COLOR_GRID_INNER_B;
+        for (int y = 0; y < MATRIX_SIZE; y++) {
+            led_canvas_set_pixel(canvas, x, y, r, g, b);
         }
     }
 }
+
 
 
 // 말 그리기 (6x6 전체 채우기)
