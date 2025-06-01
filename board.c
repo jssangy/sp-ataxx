@@ -19,9 +19,9 @@
 #define COLOR_BLUE_G 0
 #define COLOR_BLUE_B 255
 
-#define COLOR_EMPTY_R 30
-#define COLOR_EMPTY_G 30
-#define COLOR_EMPTY_B 30
+#define COLOR_EMPTY_R 0
+#define COLOR_EMPTY_G 0
+#define COLOR_EMPTY_B 0
 
 #define COLOR_BLOCKED_R 100
 #define COLOR_BLOCKED_G 100
@@ -35,14 +35,10 @@
 #define COLOR_BG_G 0
 #define COLOR_BG_B 0
 
-// Team name colors (gradient effect)
-#define COLOR_TEAM1_R 255
-#define COLOR_TEAM1_G 100
-#define COLOR_TEAM1_B 0
-
-#define COLOR_TEAM2_R 255
-#define COLOR_TEAM2_G 200
-#define COLOR_TEAM2_B 0
+// Team name colors
+#define COLOR_TEAM_R 255
+#define COLOR_TEAM_G 200
+#define COLOR_TEAM_B 0
 
 // Global game board
 char board[BOARD_SIZE][BOARD_SIZE];
@@ -50,7 +46,6 @@ char board[BOARD_SIZE][BOARD_SIZE];
 // LED Matrix global variables
 struct RGBLedMatrix *matrix = NULL;
 struct LedCanvas *canvas = NULL;
-struct LedFont *font = NULL;
 
 // Display team name in console
 void displayTeamName() {
@@ -64,12 +59,12 @@ void displayTeamName() {
     printf("║     ██║   ███████╗██║  ██║██║ ╚═╝ ██║                        ║\n");
     printf("║     ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝                        ║\n");
     printf("║                                                               ║\n");
-    printf("║  ███████╗██╗  ██╗ █████╗ ███╗   ██╗███╗   ██╗ ██████╗ ███╗   ██╗║\n");
-    printf("║  ██╔════╝██║  ██║██╔══██╗████╗  ██║████╗  ██║██╔═══██╗████╗  ██║║\n");
-    printf("║  ███████╗███████║███████║██╔██╗ ██║██╔██╗ ██║██║   ██║██╔██╗ ██║║\n");
-    printf("║  ╚════██║██╔══██║██╔══██║██║╚██╗██║██║╚██╗██║██║   ██║██║╚██╗██║║\n");
-    printf("║  ███████║██║  ██║██║  ██║██║ ╚████║██║ ╚████║╚██████╔╝██║ ╚████║║\n");
-    printf("║  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝║\n");
+    printf("║   ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗           ║\n");
+    printf("║  ██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝           ║\n");
+    printf("║  ██║     ██║     ███████║██║   ██║██║  ██║█████╗             ║\n");
+    printf("║  ██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝             ║\n");
+    printf("║  ╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗           ║\n");
+    printf("║   ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝           ║\n");
     printf("║                                                               ║\n");
     printf("║                    🎮 OctaFlip LED Display 🎮                 ║\n");
     printf("║                                                               ║\n");
@@ -77,57 +72,38 @@ void displayTeamName() {
     printf("\n");
 }
 
-// Show team name on LED Matrix with animation using draw_text
+// Manual text drawing function for team name
+void drawTextManual(const char* text, int start_x, int start_y, int r, int g, int b) {
+    // Simple 5x7 character representation
+    const int char_width = 5;
+    const int char_height = 7;
+    const int spacing = 1;
+    
+    for (int i = 0; text[i] != '\0'; i++) {
+        int x_offset = start_x + i * (char_width + spacing);
+        
+        // Simple block letters - just fill rectangles for each character
+        if (text[i] != ' ') {
+            for (int y = 0; y < char_height; y++) {
+                for (int x = 0; x < char_width; x++) {
+                    led_canvas_set_pixel(canvas, x_offset + x, start_y + y, r, g, b);
+                }
+            }
+        }
+    }
+}
+
+// Show team name on LED Matrix with animation
 void showTeamNameOnMatrix() {
     if (!canvas) return;
     
-    // Try to load a font (you may need to adjust the path)
-    if (!font) {
-        font = load_font("/home/pi/rpi-rgb-led-matrix/fonts/7x13.bdf");
-        if (!font) {
-            // If font loading fails, fallback to pixel drawing
-            printf("Warning: Could not load font file. Using fallback display.\n");
-            
-            // Fallback: simple pixel display
-            for (int blink = 0; blink < 3; blink++) {
-                led_canvas_clear(canvas);
-                
-                // Draw "TEAM SHANNON" manually
-                const char* text = "TEAM SHANNON";
-                int text_len = strlen(text);
-                
-                for (int i = 0; i < text_len; i++) {
-                    int x_offset = 3 + i * 5;
-                    int y_offset = 28;
-                    
-                    int r = (i < 4) ? 255 : 255 - (i - 4) * 20;
-                    int g = (i < 4) ? 100 : 200;
-                    int b = 0;
-                    
-                    if (text[i] != ' ') {
-                        for (int px = 0; px < 4; px++) {
-                            for (int py = 0; py < 7; py++) {
-                                led_canvas_set_pixel(canvas, x_offset + px, y_offset + py, r, g, b);
-                            }
-                        }
-                    }
-                }
-                
-                usleep(500000);
-                led_canvas_clear(canvas);
-                usleep(200000);
-            }
-            return;
-        }
-    }
-    
-    // Blinking effect with draw_text - flash 3 times
+    // Blinking effect - flash 3 times
     for (int blink = 0; blink < 3; blink++) {
         led_canvas_clear(canvas);
         
-        // Draw "TEAM SHANNON" using draw_text
-        draw_text(canvas, font, 5, 32, COLOR_TEAM1_R, COLOR_TEAM1_G, COLOR_TEAM1_B, 
-                  "TEAM SHANNON", 0);
+        // Draw "TEAM CLAUDE" manually centered
+        drawTextManual("TEAM", 15, 20, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+        drawTextManual("CLAUDE", 10, 35, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
         
         // Decorative frame
         for (int x = 0; x < MATRIX_SIZE; x++) {
@@ -144,12 +120,10 @@ void showTeamNameOnMatrix() {
         usleep(200000); // 0.2 seconds off
     }
     
-    // Keep "TEAM SHANNON" displayed
+    // Keep "TEAM CLAUDE" displayed until board input
     led_canvas_clear(canvas);
-    
-    // Final display using draw_text
-    draw_text(canvas, font, 5, 32, COLOR_TEAM1_R, COLOR_TEAM1_G, COLOR_TEAM1_B, 
-              "TEAM SHANNON", 0);
+    drawTextManual("TEAM", 15, 20, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+    drawTextManual("CLAUDE", 10, 35, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
     
     // Frame
     for (int x = 0; x < MATRIX_SIZE; x++) {
@@ -160,9 +134,6 @@ void showTeamNameOnMatrix() {
         led_canvas_set_pixel(canvas, 0, y, 100, 100, 255);
         led_canvas_set_pixel(canvas, MATRIX_SIZE-1, y, 100, 100, 255);
     }
-    
-    // Keep displayed for 2 seconds
-    usleep(2000000);
 }
 
 // Initialize LED Matrix
@@ -181,7 +152,7 @@ int initLEDMatrix() {
     options.hardware_mapping = "regular";
     options.brightness = 80;
     
-    // hardware pulse 비활성화 (오류 해결)
+    // Disable hardware pulsing
     options.disable_hardware_pulsing = 1;
     
     rt_options.gpio_slowdown = 4;
@@ -198,9 +169,9 @@ int initLEDMatrix() {
     return 0;
 }
 
-// Draw grid lines
+// Draw grid lines - 1 pixel wide at positions 0, 8, 16, ..., 64
 void drawGridLines() {
-    // Draw horizontal lines (0, 8, 16, ..., 64)
+    // Draw horizontal lines
     for (int i = 0; i <= BOARD_SIZE; i++) {
         int y = i * CELL_SIZE;
         for (int x = 0; x < MATRIX_SIZE; x++) {
@@ -208,7 +179,7 @@ void drawGridLines() {
         }
     }
     
-    // Draw vertical lines (0, 8, 16, ..., 64)
+    // Draw vertical lines
     for (int i = 0; i <= BOARD_SIZE; i++) {
         int x = i * CELL_SIZE;
         for (int y = 0; y < MATRIX_SIZE; y++) {
@@ -217,10 +188,10 @@ void drawGridLines() {
     }
 }
 
-// Draw piece function
+// Draw piece function - fill 6x6 area with solid color
 void drawPiece(int row, int col, char piece) {
-    // Calculate cell starting position
-    int start_x = col * CELL_SIZE + 1;  // +1 for border
+    // Calculate cell starting position (skip the grid line)
+    int start_x = col * CELL_SIZE + 1;
     int start_y = row * CELL_SIZE + 1;
     
     // Determine color
@@ -237,53 +208,23 @@ void drawPiece(int row, int col, char piece) {
             b = COLOR_BLUE_B;
             break;
         case '.':
-            r = COLOR_EMPTY_R;
-            g = COLOR_EMPTY_G;
-            b = COLOR_EMPTY_B;
-            break;
+            // Empty cell - leave black (no drawing needed)
+            return;
         case '#':
             r = COLOR_BLOCKED_R;
             g = COLOR_BLOCKED_G;
             b = COLOR_BLOCKED_B;
             break;
         default:
-            r = g = b = 0;
+            return;
     }
     
-    // Draw 6x6 piece
+    // Fill the entire 6x6 area with solid color
     for (int py = 0; py < PIECE_SIZE; py++) {
         for (int px = 0; px < PIECE_SIZE; px++) {
             int x = start_x + px;
             int y = start_y + py;
-            
-            // Special patterns for each piece type
-            if (piece == 'R') {
-                // Red piece as circle
-                int cx = PIECE_SIZE / 2;
-                int cy = PIECE_SIZE / 2;
-                int dx = px - cx;
-                int dy = py - cy;
-                if (dx*dx + dy*dy <= (PIECE_SIZE/2) * (PIECE_SIZE/2)) {
-                    led_canvas_set_pixel(canvas, x, y, r, g, b);
-                }
-            } else if (piece == 'B') {
-                // Blue piece as diamond
-                int cx = PIECE_SIZE / 2;
-                int cy = PIECE_SIZE / 2;
-                if (abs(px - cx) + abs(py - cy) <= PIECE_SIZE/2) {
-                    led_canvas_set_pixel(canvas, x, y, r, g, b);
-                }
-            } else if (piece == '.') {
-                // Empty space as small dot
-                if (px == PIECE_SIZE/2 && py == PIECE_SIZE/2) {
-                    led_canvas_set_pixel(canvas, x, y, r, g, b);
-                }
-            } else if (piece == '#') {
-                // Blocked space as X
-                if (px == py || px == PIECE_SIZE - 1 - py) {
-                    led_canvas_set_pixel(canvas, x, y, r, g, b);
-                }
-            }
+            led_canvas_set_pixel(canvas, x, y, r, g, b);
         }
     }
 }
@@ -295,7 +236,7 @@ void displayBoardOnMatrix() {
     // Clear background
     led_canvas_clear(canvas);
     
-    // Draw grid lines
+    // Draw grid lines first
     drawGridLines();
     
     // Draw each piece
@@ -331,11 +272,11 @@ int main() {
         printf("Warning: Unable to initialize LED matrix. Running in console mode.\n");
     } else {
         printf("LED Matrix initialized successfully!\n");
-        // Show team name animation
+        // Show team name animation and keep it displayed
         showTeamNameOnMatrix();
     }
     
-    // Board input instructions (Assignment 1 style)
+    // Board input instructions
     printf("\n=== Board State Input ===\n");
     printf("Please enter the 8x8 board state.\n");
     printf("Available characters:\n");
@@ -343,67 +284,68 @@ int main() {
     printf("  B : Blue player's piece\n");
     printf("  . : Empty cell\n");
     printf("  # : Blocked cell\n");
-    printf("\nEnter 8 lines, each with 8 characters:\n");
     
-    // Get board input - 8 lines (Assignment 1 style)
-    char line[BOARD_SIZE + 10];  // Include extra space for newline
+    // Bulk input option
+    printf("\nYou can paste all 8 rows at once (8 characters per row):\n");
+    printf("Example:\n");
+    printf("R......B\n");
+    printf("........\n");
+    printf("........\n");
+    printf("........\n");
+    printf("........\n");
+    printf("........\n");
+    printf("........\n");
+    printf("B......R\n");
+    printf("\nEnter your board state below:\n");
     
+    // Get board input - bulk style
+    char board_lines[BOARD_SIZE][BOARD_SIZE + 2];  // +2 for newline and null
+    
+    // Read all 8 lines
     for (int i = 0; i < BOARD_SIZE; i++) {
-        int valid_input = 0;
-        
-        while (!valid_input) {
-            printf("Row %d: ", i + 1);
-            
-            if (fgets(line, sizeof(line), stdin) == NULL) {
-                printf("Error reading input. Please try again.\n");
-                continue;
-            }
-            
-            // Remove newline character
-            int len = strlen(line);
-            if (len > 0 && line[len - 1] == '\n') {
-                line[len - 1] = '\0';
-                len--;
-            }
-            
-            // Additional check for carriage return (Windows)
-            if (len > 0 && line[len - 1] == '\r') {
-                line[len - 1] = '\0';
-                len--;
-            }
-            
-            // Validate line length
-            if (len != BOARD_SIZE) {
-                printf("Invalid line length. Each line must have exactly %d characters.\n", BOARD_SIZE);
-                continue;
-            }
-            
-            // Validate characters
-            int has_invalid_char = 0;
-            for (int j = 0; j < BOARD_SIZE; j++) {
-                if (line[j] != 'R' && line[j] != 'B' && line[j] != '.' && line[j] != '#') {
-                    has_invalid_char = 1;
-                    break;
-                }
-            }
-            
-            if (has_invalid_char) {
-                printf("Invalid characters. Use only R, B, ., or #.\n");
-                continue;
-            }
-            
-            // Valid input
-            valid_input = 1;
+        if (fgets(board_lines[i], sizeof(board_lines[i]), stdin) == NULL) {
+            printf("Error reading input. Please restart and try again.\n");
+            if (matrix) led_matrix_delete(matrix);
+            return 1;
         }
         
-        // Copy valid line to board
+        // Remove newline character
+        int len = strlen(board_lines[i]);
+        if (len > 0 && board_lines[i][len - 1] == '\n') {
+            board_lines[i][len - 1] = '\0';
+            len--;
+        }
+        
+        // Additional check for carriage return
+        if (len > 0 && board_lines[i][len - 1] == '\r') {
+            board_lines[i][len - 1] = '\0';
+            len--;
+        }
+        
+        // Validate line length
+        if (len != BOARD_SIZE) {
+            printf("Error: Row %d has %d characters, expected %d.\n", i+1, len, BOARD_SIZE);
+            if (matrix) led_matrix_delete(matrix);
+            return 1;
+        }
+        
+        // Validate characters
         for (int j = 0; j < BOARD_SIZE; j++) {
-            board[i][j] = line[j];
+            if (board_lines[i][j] != 'R' && board_lines[i][j] != 'B' && 
+                board_lines[i][j] != '.' && board_lines[i][j] != '#') {
+                printf("Error: Invalid character '%c' at row %d, column %d.\n", 
+                       board_lines[i][j], i+1, j+1);
+                if (matrix) led_matrix_delete(matrix);
+                return 1;
+            }
+            
+            // Copy to board
+            board[i][j] = board_lines[i][j];
         }
     }
     
     // Output board state
-    printf("\nInput Board:\n");
+    printf("\nBoard successfully loaded!\n");
     printBoard();
     
     // Display on LED Matrix
@@ -412,20 +354,17 @@ int main() {
         displayBoardOnMatrix();
         
         // Wait for user to exit
-        printf("Press Enter to exit...\n");
+        printf("\nPress Enter to exit...\n");
         getchar();
     }
     
     // Cleanup
-    if (font) {
-        delete_font(font);
-    }
     if (matrix) {
         led_matrix_delete(matrix);
     }
     
     printf("\nProgram terminated.\n");
-    printf("Team Shannon - OctaFlip LED Display\n");
+    printf("Team Claude - OctaFlip LED Display\n");
     
     return 0;
 }
