@@ -91,7 +91,7 @@ void drawGridLines() {
     for (int i = 0; i <= BOARD_SIZE; i++) {
         int y = i * CELL_SIZE;
         if (y <= MATRIX_SIZE) {  // 64번째 라인은 매트릭스 범위를 벗어남
-            for (int x = 0; x < MATRIX_SIZE; x++) {
+            for (int x = 0; x <= MATRIX_SIZE; x++) {
                 led_canvas_set_pixel(canvas, x, y, COLOR_GRID_R, COLOR_GRID_G, COLOR_GRID_B);
             }
         }
@@ -101,7 +101,7 @@ void drawGridLines() {
     for (int i = 0; i <= BOARD_SIZE; i++) {
         int x = i * CELL_SIZE;
         if (x <= MATRIX_SIZE) {  // 64번째 라인은 매트릭스 범위를 벗어남
-            for (int y = 0; y < MATRIX_SIZE; y++) {
+            for (int y = 0; y <= MATRIX_SIZE; y++) {
                 led_canvas_set_pixel(canvas, x, y, COLOR_GRID_R, COLOR_GRID_G, COLOR_GRID_B);
             }
         }
