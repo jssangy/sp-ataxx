@@ -3,102 +3,171 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
-
-// rpi-rgb-led-matrix 라이브러리 헤더
 #include "led-matrix-c.h"
 
-// 보드 및 디스플레이 상수
 #define BOARD_SIZE 8
-#define MATRIX_SIZE 64
 #define CELL_SIZE 8
 #define PIECE_SIZE 6
-#define PIECE_OFFSET 1  // (8-6)/2 = 1
+#define PIECE_OFFSET 1
 
-// 게임 피스 정의
-#define RED 'R'
-#define BLUE 'B'
-#define EMPTY '.'
-#define BLOCKED '#'
+// 색상 정의
+#define RED_R 255
+#define RED_G 0
+#define RED_B 0
 
-// 색상 정의 (RGB)
-typedef struct {
-    unsigned char r, g, b;
-} Color;
+#define BLUE_R 0
+#define BLUE_G 0
+#define BLUE_B 255
 
-const Color COLOR_RED = {255, 0, 0};
-const Color COLOR_BLUE = {0, 0, 255};
-const Color COLOR_EMPTY = {0, 0, 0};
-const Color COLOR_BLOCKED = {64, 64, 64};
-const Color COLOR_GRID = {32, 32, 32};
-const Color COLOR_RED_DIM = {128, 0, 0};      // 어두운 빨강
-const Color COLOR_BLUE_DIM = {0, 0, 128};     // 어두운 파랑
+#define EMPTY_R 0
+#define EMPTY_G 0
+#define EMPTY_B 0
+
+#define BLOCKED_R 64
+#define BLOCKED_G 64
+#define BLOCKED_B 64
+
+#define GRID_R 128
+#define GRID_G 128
+#define GRID_B 128
 
 // 전역 변수
-static struct RGBLedMatrix *matrix = NULL;
-static struct LedCanvas *canvas = NULL;
-static volatile int running = 1;
-static char board[BOARD_SIZE][BOARD_SIZE];
+struct RGBLedMatrix *matrix = NULL;
+struct LedCanvas *canvas = NULL;
+volatile sig_atomic_t interrupt_received = 0;
 
 // 시그널 핸들러
-void signal_handler(int sig) {
-    (void)sig;
-    running = 0;
+static void InterruptHandler(int signo) {
+    interrupt_received = 1;
 }
 
-// 보드 초기화
-void initializeBoard() {
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            board[i][j] = EMPTY;
+// 격자선 그리기
+void draw_grid(struct LedCanvas *canvas) {
+    // 수평선 그리기 (0, 8, 16, ..., 64)
+    for (int y = 0; y <= 64; y += CELL_SIZE) {
+        for (int x = 0; x < 64; x++) {
+            led_canvas_set_pixel(canvas, x, y, GRID_R, GRID_G, GRID_B);
         }
     }
-    // 초기 위치 설정
-    board[0][0] = RED;
-    board[0][7] = BLUE;
-    board[7][0] = BLUE;
-    board[7][7] = RED;
+    
+    // 수직선 그리기 (0, 8, 16, ..., 64)
+    for (int x = 0; x <= 64; x += CELL_SIZE) {
+        for (int y = 0; y < 64; y++) {
+            led_canvas_set_pixel(canvas, x, y, GRID_R, GRID_G, GRID_B);
+        }
+    }
 }
 
-// 입력에서 보드 읽기
-int readBoardFromInput() {
-    printf("Enter the board state (8 lines, 8 characters each):\n");
+// 말 그리기 (6x6 픽셀)
+void draw_piece(struct LedCanvas *canvas, int row, int col, char piece) {
+    int start_x = col * CELL_SIZE + PIECE_OFFSET;
+    int start_y = row * CELL_SIZE + PIECE_OFFSET;
+    
+    uint8_t r = 0, g = 0, b = 0;
+    
+    switch (piece) {
+        case 'R':
+            r = RED_R; g = RED_G; b = RED_B;
+            break;
+        case 'B':
+            r = BLUE_R; g = BLUE_G; b = BLUE_B;
+            break;
+        case '.':
+            r = EMPTY_R; g = EMPTY_G; b = EMPTY_B;
+            break;
+        case '#':
+            r = BLOCKED_R; g = BLOCKED_G; b = BLOCKED_B;
+            break;
+        default:
+            return;
+    }
+    
+    // 6x6 픽셀 영역 채우기
+    for (int y = 0; y < PIECE_SIZE; y++) {
+        for (int x = 0; x < PIECE_SIZE; x++) {
+            led_canvas_set_pixel(canvas, start_x + x, start_y + y, r, g, b);
+        }
+    }
+    
+    // 빈 칸인 경우 작은 점을 중앙에 표시 (선택사항)
+    if (piece == '.') {
+        int center_x = start_x + PIECE_SIZE / 2;
+        int center_y = start_y + PIECE_SIZE / 2;
+        led_canvas_set_pixel(canvas, center_x, center_y, 32, 32, 32);
+    }
+}
+
+// 보드 상태 그리기
+void draw_board(struct LedCanvas *canvas, char board[BOARD_SIZE][BOARD_SIZE]) {
+    // 먼저 캔버스를 검은색으로 지우기
+    led_canvas_clear(canvas);
+    
+    // 격자선 그리기
+    draw_grid(canvas);
+    
+    // 각 셀에 말 그리기
+    for (int row = 0; row < BOARD_SIZE; row++) {
+        for (int col = 0; col < BOARD_SIZE; col++) {
+            draw_piece(canvas, row, col, board[row][col]);
+        }
+    }
+}
+
+// 보드 입력 받기
+int read_board_input(char board[BOARD_SIZE][BOARD_SIZE]) {
+    printf("Please enter the 8x8 board state:\n");
     printf("Use R for Red, B for Blue, . for Empty, # for Blocked\n");
+    printf("Enter 8 lines with 8 characters each:\n\n");
     
     for (int i = 0; i < BOARD_SIZE; i++) {
         char line[256];
+        printf("Row %d: ", i + 1);
+        
         if (fgets(line, sizeof(line), stdin) == NULL) {
-            fprintf(stderr, "Error reading input\n");
-            return -1;
+            printf("Error reading input\n");
+            return 0;
         }
         
-        // 줄바꿈 문자 제거
-        line[strcspn(line, "\n")] = 0;
+        // 개행 문자 제거
+        line[strcspn(line, "\n")] = '\0';
         
-        // 입력 길이 확인
+        // 입력 검증
         if (strlen(line) != BOARD_SIZE) {
-            fprintf(stderr, "Error: Line %d must have exactly %d characters\n", i+1, BOARD_SIZE);
-            return -1;
+            printf("Error: Row must have exactly %d characters\n", BOARD_SIZE);
+            i--; // 다시 입력받기
+            continue;
         }
         
-        // 유효한 문자 확인 및 보드에 복사
+        // 유효한 문자인지 확인
+        int valid = 1;
         for (int j = 0; j < BOARD_SIZE; j++) {
-            if (line[j] != RED && line[j] != BLUE && 
-                line[j] != EMPTY && line[j] != BLOCKED) {
-                fprintf(stderr, "Error: Invalid character '%c' at position (%d,%d)\n", 
-                        line[j], i+1, j+1);
-                return -1;
+            if (line[j] != 'R' && line[j] != 'B' && 
+                line[j] != '.' && line[j] != '#') {
+                printf("Error: Invalid character '%c'. Use only R, B, ., or #\n", line[j]);
+                valid = 0;
+                break;
             }
+        }
+        
+        if (!valid) {
+            i--; // 다시 입력받기
+            continue;
+        }
+        
+        // 보드에 복사
+        for (int j = 0; j < BOARD_SIZE; j++) {
             board[i][j] = line[j];
         }
     }
     
-    return 0;
+    return 1;
 }
 
-// 보드 상태 출력 (디버깅용)
-void printBoard() {
-    printf("\nCurrent Board State:\n");
+// 보드 출력 (콘솔)
+void print_board(char board[BOARD_SIZE][BOARD_SIZE]) {
+    printf("\nCurrent Board:\n");
     printf("  1 2 3 4 5 6 7 8\n");
+    
     for (int i = 0; i < BOARD_SIZE; i++) {
         printf("%d ", i + 1);
         for (int j = 0; j < BOARD_SIZE; j++) {
@@ -109,237 +178,70 @@ void printBoard() {
     printf("\n");
 }
 
-// 그리드 라인 그리기
-void drawGridLines() {
-    // 수직선 그리기 (0, 8, 16, 24, 32, 40, 48, 56, 64)
-    for (int i = 0; i <= BOARD_SIZE; i++) {
-        int x = i * CELL_SIZE;
-        for (int y = 0; y < MATRIX_SIZE; y++) {
-            led_canvas_set_pixel(canvas, x, y, 
-                               COLOR_GRID.r, COLOR_GRID.g, COLOR_GRID.b);
-        }
-    }
-    
-    // 수평선 그리기
-    for (int i = 0; i <= BOARD_SIZE; i++) {
-        int y = i * CELL_SIZE;
-        for (int x = 0; x < MATRIX_SIZE; x++) {
-            led_canvas_set_pixel(canvas, x, y, 
-                               COLOR_GRID.r, COLOR_GRID.g, COLOR_GRID.b);
-        }
-    }
-}
-
-// 원형 피스 그리기 (6x6 영역에)
-void drawCirclePiece(int cellX, int cellY, Color color, Color dimColor) {
-    int centerX = cellX * CELL_SIZE + CELL_SIZE / 2;
-    int centerY = cellY * CELL_SIZE + CELL_SIZE / 2;
-    
-    // 6x6 영역에 원 그리기
-    for (int dy = -PIECE_SIZE/2; dy <= PIECE_SIZE/2; dy++) {
-        for (int dx = -PIECE_SIZE/2; dx <= PIECE_SIZE/2; dx++) {
-            int x = centerX + dx;
-            int y = centerY + dy;
-            
-            // 경계 확인
-            if (x <= cellX * CELL_SIZE || x >= (cellX + 1) * CELL_SIZE ||
-                y <= cellY * CELL_SIZE || y >= (cellY + 1) * CELL_SIZE) {
-                continue;
-            }
-            
-            // 원 내부인지 확인 (반지름 약 2.5)
-            float dist_sq = dx * dx + dy * dy;
-            if (dist_sq <= 6.25) {  // 2.5^2
-                // 가장자리는 어둡게
-                if (dist_sq > 4.0) {
-                    led_canvas_set_pixel(canvas, x, y, 
-                                       dimColor.r, dimColor.g, dimColor.b);
-                } else {
-                    led_canvas_set_pixel(canvas, x, y, 
-                                       color.r, color.g, color.b);
-                }
-            }
-        }
-    }
-}
-
-// 사각형 피스 그리기 (대체 디자인)
-void drawSquarePiece(int cellX, int cellY, Color color) {
-    int startX = cellX * CELL_SIZE + PIECE_OFFSET;
-    int startY = cellY * CELL_SIZE + PIECE_OFFSET;
-    
-    for (int dy = 0; dy < PIECE_SIZE; dy++) {
-        for (int dx = 0; dx < PIECE_SIZE; dx++) {
-            led_canvas_set_pixel(canvas, startX + dx, startY + dy, 
-                               color.r, color.g, color.b);
-        }
-    }
-}
-
-// 다이아몬드 피스 그리기 (또 다른 대체 디자인)
-void drawDiamondPiece(int cellX, int cellY, Color color, Color dimColor) {
-    int centerX = cellX * CELL_SIZE + CELL_SIZE / 2;
-    int centerY = cellY * CELL_SIZE + CELL_SIZE / 2;
-    
-    // 다이아몬드 모양 그리기
-    for (int dy = -PIECE_SIZE/2; dy <= PIECE_SIZE/2; dy++) {
-        for (int dx = -PIECE_SIZE/2; dx <= PIECE_SIZE/2; dx++) {
-            int x = centerX + dx;
-            int y = centerY + dy;
-            
-            // 경계 확인
-            if (x <= cellX * CELL_SIZE || x >= (cellX + 1) * CELL_SIZE ||
-                y <= cellY * CELL_SIZE || y >= (cellY + 1) * CELL_SIZE) {
-                continue;
-            }
-            
-            // 다이아몬드 내부인지 확인
-            if (abs(dx) + abs(dy) <= PIECE_SIZE/2) {
-                // 가장자리는 어둡게
-                if (abs(dx) + abs(dy) == PIECE_SIZE/2) {
-                    led_canvas_set_pixel(canvas, x, y, 
-                                       dimColor.r, dimColor.g, dimColor.b);
-                } else {
-                    led_canvas_set_pixel(canvas, x, y, 
-                                       color.r, color.g, color.b);
-                }
-            }
-        }
-    }
-}
-
-// X 표시 그리기 (블록된 셀용)
-void drawBlockedCell(int cellX, int cellY) {
-    int startX = cellX * CELL_SIZE + PIECE_OFFSET;
-    int startY = cellY * CELL_SIZE + PIECE_OFFSET;
-    
-    // X 모양 그리기
-    for (int i = 0; i < PIECE_SIZE; i++) {
-        // 대각선 \
-        led_canvas_set_pixel(canvas, startX + i, startY + i, 
-                           COLOR_BLOCKED.r, COLOR_BLOCKED.g, COLOR_BLOCKED.b);
-        // 대각선 /
-        led_canvas_set_pixel(canvas, startX + PIECE_SIZE - 1 - i, startY + i, 
-                           COLOR_BLOCKED.r, COLOR_BLOCKED.g, COLOR_BLOCKED.b);
-    }
-}
-
-// 보드를 LED Matrix에 표시
-void displayBoard() {
-    // 캔버스 클리어
-    led_canvas_clear(canvas);
-    
-    // 그리드 라인 그리기
-    drawGridLines();
-    
-    // 각 셀에 피스 그리기
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            switch (board[i][j]) {
-                case RED:
-                    drawCirclePiece(j, i, COLOR_RED, COLOR_RED_DIM);
-                    break;
-                case BLUE:
-                    drawCirclePiece(j, i, COLOR_BLUE, COLOR_BLUE_DIM);
-                    break;
-                case BLOCKED:
-                    drawBlockedCell(j, i);
-                    break;
-                case EMPTY:
-                    // 빈 셀은 그리지 않음
-                    break;
-            }
-        }
-    }
-    
-    // 변경사항을 실제 LED에 적용
-    canvas = led_matrix_swap_on_vsync(matrix, canvas);
-}
-
-// LED Matrix 초기화
-int initializeLEDMatrix() {
+int main(int argc, char *argv[]) {
+    // LED Matrix 옵션 설정
     struct RGBLedMatrixOptions options;
-    struct RGBLedRuntimeOptions runtime;
+    struct RGBLedRuntimeOptions rt_options;
     
     memset(&options, 0, sizeof(options));
-    memset(&runtime, 0, sizeof(runtime));
+    memset(&rt_options, 0, sizeof(rt_options));
     
-    // LED Matrix 옵션 설정
     options.rows = 64;
     options.cols = 64;
     options.chain_length = 1;
     options.parallel = 1;
     options.hardware_mapping = "regular";
-    options.pwm_bits = 11;
-    options.brightness = 100;
-    options.scan_mode = 0;
-    options.pwm_lsb_nanoseconds = 130;
-    options.led_rgb_sequence = "RGB";
-    options.pixel_mapper_config = NULL;
-    options.panel_type = NULL;
+    options.brightness = 50;
     
-    runtime.gpio_slowdown = 1;
-    runtime.daemon = 0;
-    runtime.drop_privileges = 1;
-    
-    // Matrix 생성
-    matrix = led_matrix_create_from_options(&options, &runtime);
-    if (matrix == NULL) {
-        fprintf(stderr, "Error: Failed to create LED matrix\n");
-        return -1;
-    }
-    
-    // Canvas 생성
-    canvas = led_matrix_create_offscreen_canvas(matrix);
-    if (canvas == NULL) {
-        fprintf(stderr, "Error: Failed to create canvas\n");
-        led_matrix_delete(matrix);
-        return -1;
-    }
-    
-    return 0;
-}
-
-// 메인 함수
-int main(int argc, char *argv[]) {
-    printf("=== OctaFlip LED Matrix Display ===\n\n");
+    rt_options.gpio_slowdown = 4;
+    rt_options.drop_privileges = 1;
     
     // 시그널 핸들러 설정
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
+    signal(SIGTERM, InterruptHandler);
+    signal(SIGINT, InterruptHandler);
     
-    // LED Matrix 초기화
-    if (initializeLEDMatrix() < 0) {
-        fprintf(stderr, "Failed to initialize LED Matrix\n");
+    // LED Matrix 생성
+    matrix = led_matrix_create_from_options_and_rt_options(&options, &rt_options);
+    if (matrix == NULL) {
+        fprintf(stderr, "Error: Failed to create LED matrix\n");
+        fprintf(stderr, "Make sure to run with sudo\n");
         return 1;
     }
     
-    printf("LED Matrix initialized successfully\n");
+    canvas = led_matrix_get_canvas(matrix);
     
-    // 명령행 인자로 테스트 모드 확인
-    if (argc > 1 && strcmp(argv[1], "-test") == 0) {
-        printf("Test mode: Using default board\n");
-        initializeBoard();
-    } else {
-        // 사용자로부터 보드 상태 입력받기
-        if (readBoardFromInput() < 0) {
-            led_matrix_delete(matrix);
-            return 1;
+    printf("=== OctaFlip LED Matrix Display ===\n");
+    printf("64x64 LED Panel initialized\n");
+    printf("Press Ctrl+C to exit\n\n");
+    
+    // 보드 상태 저장용 배열
+    char board[BOARD_SIZE][BOARD_SIZE];
+    
+    // 메인 루프
+    while (!interrupt_received) {
+        // 보드 입력 받기
+        if (!read_board_input(board)) {
+            break;
         }
-    }
-    
-    // 입력받은 보드 상태 출력
-    printBoard();
-    
-    // LED Matrix에 표시
-    printf("Displaying board on LED Matrix...\n");
-    displayBoard();
-    
-    // 사용자가 종료할 때까지 대기
-    printf("\nPress Ctrl+C to exit\n");
-    
-    while (running) {
-        usleep(100000);  // 100ms 대기
+        
+        // 콘솔에 보드 출력
+        print_board(board);
+        
+        // LED Matrix에 보드 그리기
+        draw_board(canvas, board);
+        
+        printf("Board displayed on LED Matrix\n");
+        printf("\nPress Enter to input a new board state, or Ctrl+C to exit...");
+        
+        // 입력 대기
+        char c;
+        while ((c = getchar()) != '\n' && !interrupt_received) {
+            // 버퍼 비우기
+        }
+        
+        if (interrupt_received) break;
+        
+        printf("\n");
     }
     
     // 정리
@@ -347,43 +249,5 @@ int main(int argc, char *argv[]) {
     led_canvas_clear(canvas);
     led_matrix_delete(matrix);
     
-    printf("Goodbye!\n");
     return 0;
-}
-
-// 보드 상태 업데이트 함수 (client.c에서 호출 가능)
-void updateBoard(char newBoard[BOARD_SIZE][BOARD_SIZE]) {
-    memcpy(board, newBoard, sizeof(board));
-    displayBoard();
-}
-
-// 개별 셀 업데이트 함수
-void updateCell(int row, int col, char piece) {
-    if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE) {
-        board[row][col] = piece;
-        displayBoard();
-    }
-}
-
-// 피스 개수 카운트 함수
-int countPieces(char piece) {
-    int count = 0;
-    for (int i = 0; i < BOARD_SIZE; i++) {
-        for (int j = 0; j < BOARD_SIZE; j++) {
-            if (board[i][j] == piece) {
-                count++;
-            }
-        }
-    }
-    return count;
-}
-
-// 게임 상태 표시 함수
-void displayGameStatus() {
-    int redCount = countPieces(RED);
-    int blueCount = countPieces(BLUE);
-    int emptyCount = countPieces(EMPTY);
-    
-    printf("Game Status - Red: %d, Blue: %d, Empty: %d\n", 
-           redCount, blueCount, emptyCount);
 }

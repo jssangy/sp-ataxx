@@ -1,0 +1,2938 @@
+[Registration ] Alice registered
+[Registration ] Bob registered
+[Game Start   ] Board:
+R......B
+........
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+R......B
+........
+........
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,1)->(1,2)
+[Move OK      ] New Board:
+RR.....B
+........
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+RR.....B
+........
+........
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,8)->(1,7)
+[Move OK      ] New Board:
+RR....BB
+........
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+RR....BB
+........
+........
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,1)->(2,1)
+[Move OK      ] New Board:
+RR....BB
+R.......
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+RR....BB
+R.......
+........
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,7)->(1,6)
+[Move OK      ] New Board:
+RR...BBB
+R.......
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+RR...BBB
+R.......
+........
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,1)->(2,2)
+[Move OK      ] New Board:
+RR...BBB
+RR......
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+RR...BBB
+RR......
+........
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,6)->(1,5)
+[Move OK      ] New Board:
+RR..BBBB
+RR......
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+RR..BBBB
+RR......
+........
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,1)->(1,3)
+[Move OK      ] New Board:
+.RR.BBBB
+RR......
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+.RR.BBBB
+RR......
+........
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,5)->(1,4)
+[Move OK      ] New Board:
+.RBBBBBB
+RR......
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+.RBBBBBB
+RR......
+........
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,2)->(1,1)
+[Move OK      ] New Board:
+RRBBBBBB
+RR......
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+RRBBBBBB
+RR......
+........
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,3)->(2,3)
+[Move OK      ] New Board:
+RBBBBBBB
+RBB.....
+........
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+RBBBBBBB
+RBB.....
+........
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,1)->(3,1)
+[Move OK      ] New Board:
+.BBBBBBB
+RRB.....
+R.......
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+.BBBBBBB
+RRB.....
+R.......
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,2)->(1,1)
+[Move OK      ] New Board:
+BBBBBBBB
+BBB.....
+R.......
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBBBBBB
+BBB.....
+R.......
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (3,1)->(3,2)
+[Move OK      ] New Board:
+BBBBBBBB
+RRR.....
+RR......
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BBBBBBBB
+RRR.....
+RR......
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,1)->(3,3)
+[Move OK      ] New Board:
+.BBBBBBB
+RBB.....
+RBB.....
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+.BBBBBBB
+RBB.....
+RBB.....
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (2,1)->(1,1)
+[Move OK      ] New Board:
+RRBBBBBB
+RRB.....
+RBB.....
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+RRBBBBBB
+RRB.....
+RBB.....
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,3)->(2,4)
+[Move OK      ] New Board:
+RRBBBBBB
+RRBB....
+RBB.....
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+RRBBBBBB
+RRBB....
+RBB.....
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,2)->(3,4)
+[Move OK      ] New Board:
+R.BBBBBB
+RRRR....
+RBRR....
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+R.BBBBBB
+RRRR....
+RBRR....
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,3)->(1,2)
+[Move OK      ] New Board:
+BBBBBBBB
+BBBR....
+RBRR....
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBBBBBB
+BBBR....
+RBRR....
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (2,4)->(2,5)
+[Move OK      ] New Board:
+BBBRRRBB
+BBBRR...
+RBRR....
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BBBRRRBB
+BBBRR...
+RBRR....
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,3)->(3,5)
+[Move OK      ] New Board:
+BB.RRRBB
+BBBBB...
+RBRBB...
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BB.RRRBB
+BBBBB...
+RBRBB...
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,4)->(1,3)
+[Move OK      ] New Board:
+BRRRRRBB
+BRRRB...
+RBRBB...
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BRRRRRBB
+BRRRB...
+RBRBB...
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,7)->(2,6)
+[Move OK      ] New Board:
+BRRRBBBB
+BRRRBB..
+RBRBB...
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BRRRBBBB
+BRRRBB..
+RBRBB...
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,4)->(3,6)
+[Move OK      ] New Board:
+BRR.BBBB
+BRRRRR..
+RBRBRR..
+........
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BRR.BBBB
+BRRRRR..
+RBRBRR..
+........
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,5)->(1,4)
+[Move OK      ] New Board:
+BRBBBBBB
+BRBBBR..
+RBRBRR..
+........
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BRBBBBBB
+BRBBBR..
+RBRBRR..
+........
+........
+........
+........
+B......R
+[Move Received] Alice -> (2,2)->(4,2)
+[Move OK      ] New Board:
+BRBBBBBB
+B.BBBR..
+RRRBRR..
+.R......
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BRBBBBBB
+B.BBBR..
+RRRBRR..
+.R......
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,1)->(2,2)
+[Move OK      ] New Board:
+BBBBBBBB
+BBBBBR..
+BBBBRR..
+.R......
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBBBBBB
+BBBBBR..
+BBBBRR..
+.R......
+........
+........
+........
+B......R
+[Move Received] Alice -> (2,6)->(2,7)
+[Move OK      ] New Board:
+BBBBBRRR
+BBBBBRR.
+BBBBRR..
+.R......
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BBBBBRRR
+BBBBBRR.
+BBBBRR..
+.R......
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,5)->(3,7)
+[Move OK      ] New Board:
+BBBB.RRR
+BBBBBBB.
+BBBBRBB.
+.R......
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBB.RRR
+BBBBBBB.
+BBBBRBB.
+.R......
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,6)->(1,5)
+[Move OK      ] New Board:
+BBBRRRRR
+BBBRRRB.
+BBBBRBB.
+.R......
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BBBRRRRR
+BBBRRRB.
+BBBBRBB.
+.R......
+........
+........
+........
+B......R
+[Move Received] Bob -> (2,1)->(4,1)
+[Move OK      ] New Board:
+BBBRRRRR
+.BBRRRB.
+BBBBRBB.
+BB......
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBRRRRR
+.BBRRRB.
+BBBBRBB.
+BB......
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,6)->(3,8)
+[Move OK      ] New Board:
+BBBRR.RR
+.BBRRRR.
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BBBRR.RR
+.BBRRRR.
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,1)->(2,1)
+[Move OK      ] New Board:
+BBBRR.RR
+BBBRRRR.
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBRR.RR
+BBBRRRR.
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,4)->(1,6)
+[Move OK      ] New Board:
+BBB.RRRR
+BBBRRRR.
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BBB.RRRR
+BBBRRRR.
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,2)->(1,4)
+[Move OK      ] New Board:
+B.BBBRRR
+BBBBBRR.
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+B.BBBRRR
+BBBBBRR.
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,7)->(2,8)
+[Move OK      ] New Board:
+B.BBBRRR
+BBBBBRRR
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+B.BBBRRR
+BBBBBRRR
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,1)->(1,2)
+[Move OK      ] New Board:
+BBBBBRRR
+BBBBBRRR
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBBBRRR
+BBBBBRRR
+BBBBRBRR
+BB......
+........
+........
+........
+B......R
+[Move Received] Alice -> (2,6)->(4,4)
+[Move OK      ] New Board:
+BBBBBRRR
+BBBBB.RR
+BBRRRBRR
+BB.R....
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BBBBBRRR
+BBBBB.RR
+BBRRRBRR
+BB.R....
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,5)->(2,6)
+[Move OK      ] New Board:
+BBBBBBBR
+BBBBBBBR
+BBRRBBBR
+BB.R....
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBBBBBR
+BBBBBBBR
+BBRRBBBR
+BB.R....
+........
+........
+........
+B......R
+[Move Received] Alice -> (2,8)->(4,6)
+[Move OK      ] New Board:
+BBBBBBBR
+BBBBBBB.
+BBRRRRRR
+BB.R.R..
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BBBBBBBR
+BBBBBBB.
+BBRRRRRR
+BB.R.R..
+........
+........
+........
+B......R
+[Move Received] Bob -> (1,7)->(2,8)
+[Move OK      ] New Board:
+BBBBBBBB
+BBBBBBBB
+BBRRRRBB
+BB.R.R..
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBBBBBB
+BBBBBBBB
+BBRRRRBB
+BB.R.R..
+........
+........
+........
+B......R
+[Move Received] Alice -> (3,3)->(4,3)
+[Move OK      ] New Board:
+BBBBBBBB
+BBBBBBBB
+BRRRRRBB
+BRRR.R..
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BBBBBBBB
+BBBBBBBB
+BRRRRRBB
+BRRR.R..
+........
+........
+........
+B......R
+[Move Received] Bob -> (2,3)->(4,5)
+[Move OK      ] New Board:
+BBBBBBBB
+BB.BBBBB
+BRRBBBBB
+BRRBBB..
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBBBBBB
+BB.BBBBB
+BRRBBBBB
+BRRBBB..
+........
+........
+........
+B......R
+[Move Received] Alice -> (3,2)->(2,3)
+[Move OK      ] New Board:
+BRRRBBBB
+BRRRBBBB
+BRRRBBBB
+BRRBBB..
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BRRRBBBB
+BRRRBBBB
+BRRRBBBB
+BRRBBB..
+........
+........
+........
+B......R
+[Move Received] Bob -> (2,5)->(4,7)
+[Move OK      ] New Board:
+BRRRBBBB
+BRRR.BBB
+BRRRBBBB
+BRRBBBB.
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BRRRBBBB
+BRRR.BBB
+BRRRBBBB
+BRRBBBB.
+........
+........
+........
+B......R
+[Move Received] Alice -> (1,4)->(2,5)
+[Move OK      ] New Board:
+BRRRRRBB
+BRRRRRBB
+BRRRRRBB
+BRRBBBB.
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BRRRRRBB
+BRRRRRBB
+BRRRRRBB
+BRRBBBB.
+........
+........
+........
+B......R
+[Move Received] Bob -> (2,8)->(4,8)
+[Move OK      ] New Board:
+BRRRRRBB
+BRRRRRB.
+BRRRRRBB
+BRRBBBBB
+........
+........
+........
+B......R
+[Your Turn    ] Alice
+BRRRRRBB
+BRRRRRB.
+BRRRRRBB
+BRRBBBBB
+........
+........
+........
+B......R
+[Move Received] Alice -> (2,6)->(2,8)
+[Move OK      ] New Board:
+BRRRRRRR
+BRRRR.RR
+BRRRRRRR
+BRRBBBBB
+........
+........
+........
+B......R
+[Your Turn    ] Bob
+BRRRRRRR
+BRRRR.RR
+BRRRRRRR
+BRRBBBBB
+........
+........
+........
+B......R
+[Move Received] Bob -> (3,1)->(5,1)
+[Move OK      ] New Board:
+BRRRRRRR
+BRRRR.RR
+.RRRRRRR
+BBRBBBBB
+B.......
+........
+........
+B......R
+[Your Turn    ] Alice
+BRRRRRRR
+BRRRR.RR
+.RRRRRRR
+BBRBBBBB
+B.......
+........
+........
+B......R
+[Move Received] Alice -> (1,3)->(3,1)
+[Move OK      ] New Board:
+BR.RRRRR
+RRRRR.RR
+RRRRRRRR
+RRRBBBBB
+B.......
+........
+........
+B......R
+[Your Turn    ] Bob
+BR.RRRRR
+RRRRR.RR
+RRRRRRRR
+RRRBBBBB
+B.......
+........
+........
+B......R
+[Move Received] Bob -> (1,1)->(1,3)
+[Move OK      ] New Board:
+.BBBRRRR
+RBBBR.RR
+RRRRRRRR
+RRRBBBBB
+B.......
+........
+........
+B......R
+[Your Turn    ] Alice
+.BBBRRRR
+RBBBR.RR
+RRRRRRRR
+RRRBBBBB
+B.......
+........
+........
+B......R
+[Move Received] Alice -> (1,5)->(2,6)
+[Move OK      ] New Board:
+.BBBRRRR
+RBBBRRRR
+RRRRRRRR
+RRRBBBBB
+B.......
+........
+........
+B......R
+[Your Turn    ] Bob
+.BBBRRRR
+RBBBRRRR
+RRRRRRRR
+RRRBBBBB
+B.......
+........
+........
+B......R
+[Move Received] Bob -> (1,2)->(1,1)
+[Move OK      ] New Board:
+BBBBRRRR
+BBBBRRRR
+RRRRRRRR
+RRRBBBBB
+B.......
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBBRRRR
+BBBBRRRR
+RRRRRRRR
+RRRBBBBB
+B.......
+........
+........
+B......R
+[Move Received] Alice -> (3,1)->(5,3)
+[Move OK      ] New Board:
+BBBBRRRR
+BBBBRRRR
+.RRRRRRR
+RRRRBBBB
+B.R.....
+........
+........
+B......R
+[Your Turn    ] Bob
+BBBBRRRR
+BBBBRRRR
+.RRRRRRR
+RRRRBBBB
+B.R.....
+........
+........
+B......R
+[Move Received] Bob -> (1,1)->(3,1)
+[Move OK      ] New Board:
+.BBBRRRR
+BBBBRRRR
+BBRRRRRR
+BBRRBBBB
+B.R.....
+........
+........
+B......R
+[Your Turn    ] Alice
+.BBBRRRR
+BBBBRRRR
+BBRRRRRR
+BBRRBBBB
+B.R.....
+........
+........
+B......R
+[Move Received] Alice -> (3,3)->(1,1)
+[Move OK      ] New Board:
+RRBBRRRR
+RRBBRRRR
+BB.RRRRR
+BBRRBBBB
+B.R.....
+........
+........
+B......R
+[Your Turn    ] Bob
+RRBBRRRR
+RRBBRRRR
+BB.RRRRR
+BBRRBBBB
+B.R.....
+........
+........
+B......R
+[Move Received] Bob -> (1,3)->(3,3)
+[Move OK      ] New Board:
+RR.BRRRR
+RBBBRRRR
+BBBBRRRR
+BBBBBBBB
+B.R.....
+........
+........
+B......R
+[Your Turn    ] Alice
+RR.BRRRR
+RBBBRRRR
+BBBBRRRR
+BBBBBBBB
+B.R.....
+........
+........
+B......R
+[Move Received] Alice -> (1,1)->(1,3)
+[Move OK      ] New Board:
+.RRRRRRR
+RRRRRRRR
+BBBBRRRR
+BBBBBBBB
+B.R.....
+........
+........
+B......R
+[Your Turn    ] Bob
+.RRRRRRR
+RRRRRRRR
+BBBBRRRR
+BBBBBBBB
+B.R.....
+........
+........
+B......R
+[Move Received] Bob -> (3,1)->(1,1)
+[Move OK      ] New Board:
+BBRRRRRR
+BBRRRRRR
+.BBBRRRR
+BBBBBBBB
+B.R.....
+........
+........
+B......R
+[Your Turn    ] Alice
+BBRRRRRR
+BBRRRRRR
+.BBBRRRR
+BBBBBBBB
+B.R.....
+........
+........
+B......R
+[Move Received] Alice -> (1,3)->(3,1)
+[Move OK      ] New Board:
+BB.RRRRR
+RRRRRRRR
+RRBBRRRR
+RRBBBBBB
+B.R.....
+........
+........
+B......R
+[Your Turn    ] Bob
+BB.RRRRR
+RRRRRRRR
+RRBBRRRR
+RRBBBBBB
+B.R.....
+........
+........
+B......R
+[Move Received] Bob -> (1,1)->(1,3)
+[Move OK      ] New Board:
+.BBBRRRR
+RBBBRRRR
+RRBBRRRR
+RRBBBBBB
+B.R.....
+........
+........
+B......R
+[Your Turn    ] Alice
+.BBBRRRR
+RBBBRRRR
+RRBBRRRR
+RRBBBBBB
+B.R.....
+........
+........
+B......R
+[Move Received] Alice -> (2,1)->(1,1)
+[Move OK      ] New Board:
+RRBBRRRR
+RRBBRRRR
+RRBBRRRR
+RRBBBBBB
+B.R.....
+........
+........
+B......R
+[Your Turn    ] Bob
+RRBBRRRR
+RRBBRRRR
+RRBBRRRR
+RRBBBBBB
+B.R.....
+........
+........
+B......R
+[Move Received] Bob -> (3,3)->(5,5)
+[Move OK      ] New Board:
+RRBBRRRR
+RRBBRRRR
+RR.BRRRR
+RRBBBBBB
+B.R.B...
+........
+........
+B......R
+[Your Turn    ] Alice
+RRBBRRRR
+RRBBRRRR
+RR.BRRRR
+RRBBBBBB
+B.R.B...
+........
+........
+B......R
+[Move Received] Alice -> (1,1)->(3,3)
+[Move OK      ] New Board:
+.RBBRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBB
+B.R.B...
+........
+........
+B......R
+[Your Turn    ] Bob
+.RBBRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBB
+B.R.B...
+........
+........
+B......R
+[Move Received] Bob -> (1,3)->(1,1)
+[Move OK      ] New Board:
+BB.BRRRR
+BBRRRRRR
+RRRRRRRR
+RRRRBBBB
+B.R.B...
+........
+........
+B......R
+[Your Turn    ] Alice
+BB.BRRRR
+BBRRRRRR
+RRRRRRRR
+RRRRBBBB
+B.R.B...
+........
+........
+B......R
+[Move Received] Alice -> (1,5)->(1,3)
+[Move OK      ] New Board:
+BRRR.RRR
+BRRRRRRR
+RRRRRRRR
+RRRRBBBB
+B.R.B...
+........
+........
+B......R
+[Your Turn    ] Bob
+BRRR.RRR
+BRRRRRRR
+RRRRRRRR
+RRRRBBBB
+B.R.B...
+........
+........
+B......R
+[Move Received] Bob -> (4,5)->(5,4)
+[Move OK      ] New Board:
+BRRR.RRR
+BRRRRRRR
+RRRRRRRR
+RRBBBBBB
+B.BBB...
+........
+........
+B......R
+[Your Turn    ] Alice
+BRRR.RRR
+BRRRRRRR
+RRRRRRRR
+RRBBBBBB
+B.BBB...
+........
+........
+B......R
+[Move Received] Alice -> (1,3)->(1,5)
+[Move OK      ] New Board:
+BR.RRRRR
+BRRRRRRR
+RRRRRRRR
+RRBBBBBB
+B.BBB...
+........
+........
+B......R
+[Your Turn    ] Bob
+BR.RRRRR
+BRRRRRRR
+RRRRRRRR
+RRBBBBBB
+B.BBB...
+........
+........
+B......R
+[Move Received] Bob -> (1,1)->(1,3)
+[Move OK      ] New Board:
+.BBBRRRR
+BBBBRRRR
+RRRRRRRR
+RRBBBBBB
+B.BBB...
+........
+........
+B......R
+[Your Turn    ] Alice
+.BBBRRRR
+BBBBRRRR
+RRRRRRRR
+RRBBBBBB
+B.BBB...
+........
+........
+B......R
+[Move Received] Alice -> (3,1)->(1,1)
+[Move OK      ] New Board:
+RRBBRRRR
+RRBBRRRR
+.RRRRRRR
+RRBBBBBB
+B.BBB...
+........
+........
+B......R
+[Your Turn    ] Bob
+RRBBRRRR
+RRBBRRRR
+.RRRRRRR
+RRBBBBBB
+B.BBB...
+........
+........
+B......R
+[Move Received] Bob -> (1,3)->(3,1)
+[Move OK      ] New Board:
+RR.BRRRR
+BBBBRRRR
+BBRRRRRR
+BBBBBBBB
+B.BBB...
+........
+........
+B......R
+[Your Turn    ] Alice
+RR.BRRRR
+BBBBRRRR
+BBRRRRRR
+BBBBBBBB
+B.BBB...
+........
+........
+B......R
+[Move Received] Alice -> (1,1)->(1,3)
+[Move OK      ] New Board:
+.RRRRRRR
+BRRRRRRR
+BBRRRRRR
+BBBBBBBB
+B.BBB...
+........
+........
+B......R
+[Your Turn    ] Bob
+.RRRRRRR
+BRRRRRRR
+BBRRRRRR
+BBBBBBBB
+B.BBB...
+........
+........
+B......R
+[Move Received] Bob -> (2,1)->(1,1)
+[Move OK      ] New Board:
+BBRRRRRR
+BBRRRRRR
+BBRRRRRR
+BBBBBBBB
+B.BBB...
+........
+........
+B......R
+[Your Turn    ] Alice
+BBRRRRRR
+BBRRRRRR
+BBRRRRRR
+BBBBBBBB
+B.BBB...
+........
+........
+B......R
+[Move Received] Alice -> (3,4)->(5,2)
+[Move OK      ] New Board:
+BBRRRRRR
+BBRRRRRR
+BBR.RRRR
+RRRBBBBB
+RRRBB...
+........
+........
+B......R
+[Your Turn    ] Bob
+BBRRRRRR
+BBRRRRRR
+BBR.RRRR
+RRRBBBBB
+RRRBB...
+........
+........
+B......R
+[Move Received] Bob -> (1,2)->(3,4)
+[Move OK      ] New Board:
+B.RRRRRR
+BBBBBRRR
+BBBBBRRR
+RRBBBBBB
+RRRBB...
+........
+........
+B......R
+[Your Turn    ] Alice
+B.RRRRRR
+BBBBBRRR
+BBBBBRRR
+RRBBBBBB
+RRRBB...
+........
+........
+B......R
+[Move Received] Alice -> (1,3)->(1,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRBBRRR
+BBBBBRRR
+RRBBBBBB
+RRRBB...
+........
+........
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRBBRRR
+BBBBBRRR
+RRBBBBBB
+RRRBB...
+........
+........
+B......R
+[Move Received] Bob -> (3,4)->(5,6)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRBBRRR
+BBB.BRRR
+RRBBBBBB
+RRRBBB..
+........
+........
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRBBRRR
+BBB.BRRR
+RRBBBBBB
+RRRBBB..
+........
+........
+B......R
+[Move Received] Alice -> (1,2)->(3,4)
+[Move OK      ] New Board:
+R.RRRRRR
+RRRRRRRR
+BBRRRRRR
+RRRRRBBB
+RRRBBB..
+........
+........
+B......R
+[Your Turn    ] Bob
+R.RRRRRR
+RRRRRRRR
+BBRRRRRR
+RRRRRBBB
+RRRBBB..
+........
+........
+B......R
+[Move Received] Bob -> (3,2)->(1,2)
+[Move OK      ] New Board:
+BBBRRRRR
+BBBRRRRR
+B.RRRRRR
+RRRRRBBB
+RRRBBB..
+........
+........
+B......R
+[Your Turn    ] Alice
+BBBRRRRR
+BBBRRRRR
+B.RRRRRR
+RRRRRBBB
+RRRBBB..
+........
+........
+B......R
+[Move Received] Alice -> (1,4)->(3,2)
+[Move OK      ] New Board:
+BBB.RRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+RRRBBB..
+........
+........
+B......R
+[Your Turn    ] Bob
+BBB.RRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+RRRBBB..
+........
+........
+B......R
+[Move Received] Bob -> (1,2)->(1,4)
+[Move OK      ] New Board:
+B.BBBRRR
+RRBBBRRR
+RRRRRRRR
+RRRRRBBB
+RRRBBB..
+........
+........
+B......R
+[Your Turn    ] Alice
+B.BBBRRR
+RRBBBRRR
+RRRRRRRR
+RRRRRBBB
+RRRBBB..
+........
+........
+B......R
+[Move Received] Alice -> (2,1)->(1,2)
+[Move OK      ] New Board:
+RRRBBRRR
+RRRBBRRR
+RRRRRRRR
+RRRRRBBB
+RRRBBB..
+........
+........
+B......R
+[Your Turn    ] Bob
+RRRBBRRR
+RRRBBRRR
+RRRRRRRR
+RRRRRBBB
+RRRBBB..
+........
+........
+B......R
+[Move Received] Bob -> (4,6)->(5,7)
+[Move OK      ] New Board:
+RRRBBRRR
+RRRBBRRR
+RRRRRRRR
+RRRRRBBB
+RRRBBBB.
+........
+........
+B......R
+[Your Turn    ] Alice
+RRRBBRRR
+RRRBBRRR
+RRRRRRRR
+RRRRRBBB
+RRRBBBB.
+........
+........
+B......R
+[Move Received] Alice -> (3,6)->(5,8)
+[Move OK      ] New Board:
+RRRBBRRR
+RRRBBRRR
+RRRRR.RR
+RRRRRBRR
+RRRBBBRR
+........
+........
+B......R
+[Your Turn    ] Bob
+RRRBBRRR
+RRRBBRRR
+RRRRR.RR
+RRRRRBRR
+RRRBBBRR
+........
+........
+B......R
+[Move Received] Bob -> (1,4)->(3,6)
+[Move OK      ] New Board:
+RRR.BRRR
+RRRBBBBR
+RRRRBBBR
+RRRRBBBR
+RRRBBBRR
+........
+........
+B......R
+[Your Turn    ] Alice
+RRR.BRRR
+RRRBBBBR
+RRRRBBBR
+RRRRBBBR
+RRRBBBRR
+........
+........
+B......R
+[Move Received] Alice -> (1,2)->(1,4)
+[Move OK      ] New Board:
+R.RRRRRR
+RRRRRBBR
+RRRRBBBR
+RRRRBBBR
+RRRBBBRR
+........
+........
+B......R
+[Your Turn    ] Bob
+R.RRRRRR
+RRRRRBBR
+RRRRBBBR
+RRRRBBBR
+RRRBBBRR
+........
+........
+B......R
+[Move Received] Bob -> (4,5)->(6,3)
+[Move OK      ] New Board:
+R.RRRRRR
+RRRRRBBR
+RRRRBBBR
+RRRR.BBR
+RBBBBBRR
+..B.....
+........
+B......R
+[Your Turn    ] Alice
+R.RRRRRR
+RRRRRBBR
+RRRRBBBR
+RRRR.BBR
+RBBBBBRR
+..B.....
+........
+B......R
+[Move Received] Alice -> (1,1)->(1,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRBBR
+RRRRBBBR
+RRRR.BBR
+RBBBBBRR
+..B.....
+........
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRBBR
+RRRRBBBR
+RRRR.BBR
+RBBBBBRR
+..B.....
+........
+B......R
+[Move Received] Bob -> (2,7)->(4,5)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRB.R
+RRRBBBBR
+RRRBBBBR
+RBBBBBRR
+..B.....
+........
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRB.R
+RRRBBBBR
+RRRBBBBR
+RBBBBBRR
+..B.....
+........
+B......R
+[Move Received] Alice -> (1,6)->(2,7)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRBBRRR
+RRRBBBBR
+RBBBBBRR
+..B.....
+........
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRBBRRR
+RRRBBBBR
+RBBBBBRR
+..B.....
+........
+B......R
+[Move Received] Bob -> (4,4)->(6,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRBBRRR
+RRR.BBBR
+BBBBBBRR
+.BB.....
+........
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRBBRRR
+RRR.BBBR
+BBBBBBRR
+.BB.....
+........
+B......R
+[Move Received] Alice -> (2,2)->(4,4)
+[Move OK      ] New Board:
+RRRRRRRR
+R.RRRRRR
+RRRRRRRR
+RRRRRBBR
+BBRRRBRR
+.BB.....
+........
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+R.RRRRRR
+RRRRRRRR
+RRRRRBBR
+BBRRRBRR
+.BB.....
+........
+B......R
+[Move Received] Bob -> (4,6)->(6,4)
+[Move OK      ] New Board:
+RRRRRRRR
+R.RRRRRR
+RRRRRRRR
+RRRRR.BR
+BBBBBBRR
+.BBB....
+........
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+R.RRRRRR
+RRRRRRRR
+RRRRR.BR
+BBBBBBRR
+.BBB....
+........
+B......R
+[Move Received] Alice -> (1,1)->(2,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRR.BR
+BBBBBBRR
+.BBB....
+........
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRR.BR
+BBBBBBRR
+.BBB....
+........
+B......R
+[Move Received] Bob -> (4,7)->(4,6)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRRBBBR
+BBBBBBBR
+.BBB....
+........
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRRBBBR
+BBBBBBBR
+.BBB....
+........
+B......R
+[Move Received] Alice -> (4,1)->(6,1)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRRBBBR
+RRBBBBBR
+RRBB....
+........
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRRBBBR
+RRBBBBBR
+RRBB....
+........
+B......R
+[Move Received] Bob -> (4,5)->(6,5)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRR.BBR
+RRBBBBBR
+RRBBB...
+........
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRR.BBR
+RRBBBBBR
+RRBBB...
+........
+B......R
+[Move Received] Alice -> (2,1)->(4,1)
+[Move OK      ] New Board:
+RRRRRRRR
+.RRRRRRR
+RRRRBBBR
+RRRR.BBR
+RRBBBBBR
+RRBBB...
+........
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+.RRRRRRR
+RRRRBBBR
+RRRR.BBR
+RRBBBBBR
+RRBBB...
+........
+B......R
+[Move Received] Bob -> (3,5)->(4,5)
+[Move OK      ] New Board:
+RRRRRRRR
+.RRRRRRR
+RRRBBBBR
+RRRBBBBR
+RRBBBBBR
+RRBBB...
+........
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+.RRRRRRR
+RRRBBBBR
+RRRBBBBR
+RRBBBBBR
+RRBBB...
+........
+B......R
+[Move Received] Alice -> (1,1)->(2,1)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRBBBBR
+RRRBBBBR
+RRBBBBBR
+RRBBB...
+........
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRBBBBR
+RRRBBBBR
+RRBBBBBR
+RRBBB...
+........
+B......R
+[Move Received] Bob -> (4,4)->(6,6)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRBBBBR
+RRR.BBBR
+RRBBBBBR
+RRBBBB..
+........
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRBBBBR
+RRR.BBBR
+RRBBBBBR
+RRBBBB..
+........
+B......R
+[Move Received] Alice -> (2,2)->(4,4)
+[Move OK      ] New Board:
+RRRRRRRR
+R.RRRRRR
+RRRRRBBR
+RRRRRBBR
+RRRRRBBR
+RRBBBB..
+........
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+R.RRRRRR
+RRRRRBBR
+RRRRRBBR
+RRRRRBBR
+RRBBBB..
+........
+B......R
+[Move Received] Bob -> (4,6)->(6,8)
+[Move OK      ] New Board:
+RRRRRRRR
+R.RRRRRR
+RRRRRBBR
+RRRRR.BR
+RRRRRBBB
+RRBBBB.B
+........
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+R.RRRRRR
+RRRRRBBR
+RRRRR.BR
+RRRRRBBB
+RRBBBB.B
+........
+B......R
+[Move Received] Alice -> (1,1)->(2,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRBBR
+RRRRR.BR
+RRRRRBBB
+RRBBBB.B
+........
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRBBR
+RRRRR.BR
+RRRRRBBB
+RRBBBB.B
+........
+B......R
+[Move Received] Bob -> (3,6)->(4,6)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRRBBBR
+RRRRBBBB
+RRBBBB.B
+........
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRRBBBR
+RRRRBBBB
+RRBBBB.B
+........
+B......R
+[Move Received] Alice -> (5,1)->(7,1)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRRBBBR
+.RRRBBBB
+RRBBBB.B
+R.......
+R......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRRBBBR
+.RRRBBBB
+RRBBBB.B
+R.......
+R......R
+[Move Received] Bob -> (4,5)->(6,7)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRR.BBR
+.RRRBBBB
+RRBBBBBB
+R.......
+R......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRR.BBR
+.RRRBBBB
+RRBBBBBB
+R.......
+R......R
+[Move Received] Alice -> (2,3)->(4,5)
+[Move OK      ] New Board:
+RRRRRRRR
+RR.RRRRR
+RRRRRRBR
+RRRRRRBR
+.RRRRRBB
+RRBBBBBB
+R.......
+R......R
+[Your Turn    ] Bob
+RRRRRRRR
+RR.RRRRR
+RRRRRRBR
+RRRRRRBR
+.RRRRRBB
+RRBBBBBB
+R.......
+R......R
+[Move Received] Bob -> (5,7)->(7,5)
+[Move OK      ] New Board:
+RRRRRRRR
+RR.RRRRR
+RRRRRRBR
+RRRRRRBR
+.RRRRR.B
+RRBBBBBB
+R...B...
+R......R
+[Your Turn    ] Alice
+RRRRRRRR
+RR.RRRRR
+RRRRRRBR
+RRRRRRBR
+.RRRRR.B
+RRBBBBBB
+R...B...
+R......R
+[Move Received] Alice -> (1,2)->(2,3)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRBR
+RRRRRRBR
+.RRRRR.B
+RRBBBBBB
+R...B...
+R......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRRBR
+RRRRRRBR
+.RRRRR.B
+RRBBBBBB
+R...B...
+R......R
+[Move Received] Bob -> (3,7)->(5,7)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRR.R
+RRRRRBBB
+.RRRRBBB
+RRBBBBBB
+R...B...
+R......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRRR.R
+RRRRRBBB
+.RRRRBBB
+RRBBBBBB
+R...B...
+R......R
+[Move Received] Alice -> (1,5)->(3,7)
+[Move OK      ] New Board:
+RRRR.RRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+.RRRRBBB
+RRBBBBBB
+R...B...
+R......R
+[Your Turn    ] Bob
+RRRR.RRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+.RRRRBBB
+RRBBBBBB
+R...B...
+R......R
+[Move Received] Bob -> (5,6)->(7,4)
+[Move OK      ] New Board:
+RRRR.RRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+.RRRR.BB
+RRBBBBBB
+R..BB...
+R......R
+[Your Turn    ] Alice
+RRRR.RRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+.RRRR.BB
+RRBBBBBB
+R..BB...
+R......R
+[Move Received] Alice -> (1,3)->(1,5)
+[Move OK      ] New Board:
+RR.RRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+.RRRR.BB
+RRBBBBBB
+R..BB...
+R......R
+[Your Turn    ] Bob
+RR.RRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+.RRRR.BB
+RRBBBBBB
+R..BB...
+R......R
+[Move Received] Bob -> (5,7)->(5,6)
+[Move OK      ] New Board:
+RR.RRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRRBBBB
+RRBBBBBB
+R..BB...
+R......R
+[Your Turn    ] Alice
+RR.RRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRRBBBB
+RRBBBBBB
+R..BB...
+R......R
+[Move Received] Alice -> (1,1)->(1,3)
+[Move OK      ] New Board:
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRRBBBB
+RRBBBBBB
+R..BB...
+R......R
+[Your Turn    ] Bob
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRRBBBB
+RRBBBBBB
+R..BB...
+R......R
+[Move Received] Bob -> (5,5)->(7,3)
+[Move OK      ] New Board:
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRR.BBB
+RBBBBBBB
+R.BBB...
+R......R
+[Your Turn    ] Alice
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRR.BBB
+RBBBBBBB
+R.BBB...
+R......R
+[Move Received] Alice -> (1,2)->(1,1)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRR.BBB
+RBBBBBBB
+R.BBB...
+R......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+.RRR.BBB
+RBBBBBBB
+R.BBB...
+R......R
+[Move Received] Bob -> (4,5)->(5,5)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRBBBBR
+.RRBBBBB
+RBBBBBBB
+R.BBB...
+R......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRBBBBR
+.RRBBBBB
+RBBBBBBB
+R.BBB...
+R......R
+[Move Received] Alice -> (3,1)->(5,1)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+.RRRRRRR
+RRRBBBBR
+RRRBBBBB
+RRBBBBBB
+R.BBB...
+R......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+.RRRRRRR
+RRRBBBBR
+RRRBBBBB
+RRBBBBBB
+R.BBB...
+R......R
+[Move Received] Bob -> (5,4)->(7,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+.RRRRRRR
+RRRBBBBR
+RRR.BBBB
+BBBBBBBB
+BBBBB...
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+.RRRRRRR
+RRRBBBBR
+RRR.BBBB
+BBBBBBBB
+BBBBB...
+B......R
+[Move Received] Alice -> (1,1)->(3,1)
+[Move OK      ] New Board:
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRBBBBR
+RRR.BBBB
+BBBBBBBB
+BBBBB...
+B......R
+[Your Turn    ] Bob
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRBBBBR
+RRR.BBBB
+BBBBBBBB
+BBBBB...
+B......R
+[Move Received] Bob -> (4,4)->(5,4)
+[Move OK      ] New Board:
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRBBBBBR
+RRBBBBBB
+BBBBBBBB
+BBBBB...
+B......R
+[Your Turn    ] Alice
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRBBBBBR
+RRBBBBBB
+BBBBBBBB
+BBBBB...
+B......R
+[Move Received] Alice -> (1,2)->(1,1)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRBBBBBR
+RRBBBBBB
+BBBBBBBB
+BBBBB...
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRBBBBBR
+RRBBBBBB
+BBBBBBBB
+BBBBB...
+B......R
+[Move Received] Bob -> (5,4)->(7,6)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRBBBBBR
+RRB.BBBB
+BBBBBBBB
+BBBBBB..
+B......R
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRBBBBBR
+RRB.BBBB
+BBBBBBBB
+BBBBBB..
+B......R
+[Move Received] Alice -> (3,2)->(5,4)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+R.RRRRRR
+RRRRRBBR
+RRRRRBBB
+BBRRRBBB
+BBBBBB..
+B......R
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+R.RRRRRR
+RRRRRBBR
+RRRRRBBB
+BBRRRBBB
+BBBBBB..
+B......R
+[Move Received] Bob -> (5,6)->(7,8)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+R.RRRRRR
+RRRRRBBR
+RRRRR.BB
+BBRRRBBB
+BBBBBB.B
+B......B
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+R.RRRRRR
+RRRRRBBR
+RRRRR.BB
+BBRRRBBB
+BBBBBB.B
+B......B
+[Move Received] Alice -> (1,2)->(3,2)
+[Move OK      ] New Board:
+R.RRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRBBR
+RRRRR.BB
+BBRRRBBB
+BBBBBB.B
+B......B
+[Your Turn    ] Bob
+R.RRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRBBR
+RRRRR.BB
+BBRRRBBB
+BBBBBB.B
+B......B
+[Move Received] Bob -> (4,6)->(5,6)
+[Move OK      ] New Board:
+R.RRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRRBBBB
+BBRRBBBB
+BBBBBB.B
+B......B
+[Your Turn    ] Alice
+R.RRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRRBBBB
+BBRRBBBB
+BBBBBB.B
+B......B
+[Move Received] Alice -> (1,1)->(1,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRRBBBB
+BBRRBBBB
+BBBBBB.B
+B......B
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRRBBBB
+BBRRBBBB
+BBBBBB.B
+B......B
+[Move Received] Bob -> (5,5)->(7,7)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRR.BBB
+BBRRBBBB
+BBBBBBBB
+B......B
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRBBBR
+RRRR.BBB
+BBRRBBBB
+BBBBBBBB
+B......B
+[Move Received] Alice -> (3,3)->(5,5)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RR.RRRRR
+RRRRRRBR
+RRRRRRBB
+BBRRRRBB
+BBBBBBBB
+B......B
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RR.RRRRR
+RRRRRRBR
+RRRRRRBB
+BBRRRRBB
+BBBBBBBB
+B......B
+[Move Received] Bob -> (6,1)->(8,3)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RR.RRRRR
+RRRRRRBR
+RRRRRRBB
+.BRRRRBB
+BBBBBBBB
+B.B....B
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RR.RRRRR
+RRRRRRBR
+RRRRRRBB
+.BRRRRBB
+BBBBBBBB
+B.B....B
+[Move Received] Alice -> (1,1)->(3,3)
+[Move OK      ] New Board:
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRBR
+RRRRRRBB
+.BRRRRBB
+BBBBBBBB
+B.B....B
+[Your Turn    ] Bob
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRBR
+RRRRRRBB
+.BRRRRBB
+BBBBBBBB
+B.B....B
+[Move Received] Bob -> (6,2)->(6,1)
+[Move OK      ] New Board:
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRBR
+BBRRRRBB
+BBRRRRBB
+BBBBBBBB
+B.B....B
+[Your Turn    ] Alice
+.RRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRBR
+BBRRRRBB
+BBRRRRBB
+BBBBBBBB
+B.B....B
+[Move Received] Alice -> (1,2)->(1,1)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRBR
+BBRRRRBB
+BBRRRRBB
+BBBBBBBB
+B.B....B
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRBR
+BBRRRRBB
+BBRRRRBB
+BBBBBBBB
+B.B....B
+[Move Received] Bob -> (6,2)->(8,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRBR
+BBRRRRBB
+B.RRRRBB
+BBBBBBBB
+BBB....B
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRRBR
+BBRRRRBB
+B.RRRRBB
+BBBBBBBB
+BBB....B
+[Move Received] Alice -> (4,2)->(6,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+R.RRRRBR
+RRRRRRBB
+RRRRRRBB
+RRRBBBBB
+BBB....B
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+R.RRRRBR
+RRRRRRBB
+RRRRRRBB
+RRRBBBBB
+BBB....B
+[Move Received] Bob -> (6,7)->(8,5)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+R.RRRRBR
+RRRRRRBB
+RRRRRR.B
+RRRBBBBB
+BBB.B..B
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+R.RRRRBR
+RRRRRRBB
+RRRRRR.B
+RRRBBBBB
+BBB.B..B
+[Move Received] Alice -> (2,2)->(4,2)
+[Move OK      ] New Board:
+RRRRRRRR
+R.RRRRRR
+RRRRRRRR
+RRRRRRBR
+RRRRRRBB
+RRRRRR.B
+RRRBBBBB
+BBB.B..B
+[Your Turn    ] Bob
+RRRRRRRR
+R.RRRRRR
+RRRRRRRR
+RRRRRRBR
+RRRRRRBB
+RRRRRR.B
+RRRBBBBB
+BBB.B..B
+[Move Received] Bob -> (4,7)->(6,7)
+[Move OK      ] New Board:
+RRRRRRRR
+R.RRRRRR
+RRRRRRRR
+RRRRRR.R
+RRRRRBBB
+RRRRRBBB
+RRRBBBBB
+BBB.B..B
+[Your Turn    ] Alice
+RRRRRRRR
+R.RRRRRR
+RRRRRRRR
+RRRRRR.R
+RRRRRBBB
+RRRRRBBB
+RRRBBBBB
+BBB.B..B
+[Move Received] Alice -> (1,1)->(2,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRR.R
+RRRRRBBB
+RRRRRBBB
+RRRBBBBB
+BBB.B..B
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRRRR
+RRRRRR.R
+RRRRRBBB
+RRRRRBBB
+RRRBBBBB
+BBB.B..B
+[Move Received] Bob -> (5,6)->(4,7)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+RRRRRBBB
+RRRRRBBB
+RRRRRBBB
+RRRBBBBB
+BBB.B..B
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+RRRRRBBB
+RRRRRBBB
+RRRRRBBB
+RRRBBBBB
+BBB.B..B
+[Move Received] Alice -> (6,2)->(8,4)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+RRRRRBBB
+RRRRRBBB
+R.RRRBBB
+RRRRRBBB
+BBRRR..B
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+RRRRRBBB
+RRRRRBBB
+R.RRRBBB
+RRRRRBBB
+BBRRR..B
+[Move Received] Bob -> (6,6)->(8,6)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+RRRRRBBB
+RRRRRBBB
+R.RRR.BB
+RRRRBBBB
+BBRRBB.B
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+RRRRRBBB
+RRRRRBBB
+R.RRR.BB
+RRRRBBBB
+BBRRBB.B
+[Move Received] Alice -> (4,2)->(6,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+R.RRRBBB
+RRRRRBBB
+RRRRR.BB
+RRRRBBBB
+BBRRBB.B
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+R.RRRBBB
+RRRRRBBB
+RRRRR.BB
+RRRRBBBB
+BBRRBB.B
+[Move Received] Bob -> (4,6)->(6,6)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+R.RRR.BB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+BBRRBB.B
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRRBBB
+R.RRR.BB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+BBRRBB.B
+[Move Received] Alice -> (2,2)->(4,2)
+[Move OK      ] New Board:
+RRRRRRRR
+R.RRRRRR
+RRRRRBBB
+RRRRR.BB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+BBRRBB.B
+[Your Turn    ] Bob
+RRRRRRRR
+R.RRRRRR
+RRRRRBBB
+RRRRR.BB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+BBRRBB.B
+[Move Received] Bob -> (3,6)->(4,6)
+[Move OK      ] New Board:
+RRRRRRRR
+R.RRRRRR
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+BBRRBB.B
+[Your Turn    ] Alice
+RRRRRRRR
+R.RRRRRR
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+BBRRBB.B
+[Move Received] Alice -> (1,1)->(2,2)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+BBRRBB.B
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+BBRRBB.B
+[Move Received] Bob -> (6,5)->(8,7)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+RRRR.BBB
+RRRRBBBB
+BBRRBBBB
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RRRRBBBB
+RRRRBBBB
+RRRRBBBB
+RRRR.BBB
+RRRRBBBB
+BBRRBBBB
+[Move Received] Alice -> (4,3)->(6,5)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RRRRBBBB
+RR.RBBBB
+RRRRRRBB
+RRRRRRBB
+RRRRRRBB
+BBRRBBBB
+[Your Turn    ] Bob
+RRRRRRRR
+RRRRRRRR
+RRRRBBBB
+RR.RBBBB
+RRRRRRBB
+RRRRRRBB
+RRRRRRBB
+BBRRBBBB
+[Move Received] Bob -> (4,5)->(4,3)
+[Move OK      ] New Board:
+RRRRRRRR
+RRRRRRRR
+RBBBBBBB
+RBBB.BBB
+RBBBRRBB
+RRRRRRBB
+RRRRRRBB
+BBRRBBBB
+[Your Turn    ] Alice
+RRRRRRRR
+RRRRRRRR
+RBBBBBBB
+RBBB.BBB
+RBBBRRBB
+RRRRRRBB
+RRRRRRBB
+BBRRBBBB
+[Move Received] Alice -> (2,3)->(4,5)
+[Move OK      ] New Board:
+RRRRRRRR
+RR.RRRRR
+RBBRRRBB
+RBBRRRBB
+RBBRRRBB
+RRRRRRBB
+RRRRRRBB
+BBRRBBBB
+[Your Turn    ] Bob
+RRRRRRRR
+RR.RRRRR
+RBBRRRBB
+RBBRRRBB
+RBBRRRBB
+RRRRRRBB
+RRRRRRBB
+BBRRBBBB
+[Move Received] Bob -> (3,2)->(2,3)
+[Move OK      ] New Board:
+RBBBRRRR
+RBBBRRRR
+RBBBRRBB
+RBBRRRBB
+RBBRRRBB
+RRRRRRBB
+RRRRRRBB
+BBRRBBBB
+[Game Over    ] Scores: Alice=35, Bob=29
