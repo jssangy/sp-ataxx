@@ -60,6 +60,13 @@
 #define JUMP 2
 #define PASS 0
 
+
+// Board server connection
+static int board_sockfd = -1;
+static char board_server_addr[256] = "127.0.0.1";
+static char board_server_port[32] = "8080";
+static int board_connected = 0;
+
 // ===== AI CONSTANTS =====
 #define AI_MAX_DEPTH 20
 #define AI_INFINITY 1000000
@@ -371,6 +378,89 @@ static int nnue_evaluate(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer);
 #endif
 
 // ===== IMPLEMENTATION =====
+
+
+// Connect to board server
+int connectToBoardServer() {
+    struct addrinfo hints, *res;
+    int status;
+    
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    
+    status = getaddrinfo(board_server_addr, board_server_port, &hints, &res);
+    if (status != 0) {
+        safePrint("Board server: getaddrinfo error: %s\n", gai_strerror(status));
+        return -1;
+    }
+    
+    board_sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (board_sockfd == -1) {
+        safePrint("Board server: socket error\n");
+        freeaddrinfo(res);
+        return -1;
+    }
+    
+    safePrint("Connecting to board server at %s:%s...\n", board_server_addr, board_server_port);
+    status = connect(board_sockfd, res->ai_addr, res->ai_addrlen);
+    if (status == -1) {
+        safePrint("Board server: connect error - LED display will not be updated\n");
+        close(board_sockfd);
+        board_sockfd = -1;
+        freeaddrinfo(res);
+        return -1;
+    }
+    
+    safePrint("✅ Connected to board server!\n");
+    board_connected = 1;
+    freeaddrinfo(res);
+    return 0;
+}
+
+// Send board update to board server
+void sendBoardUpdate() {
+    if (!board_connected || board_sockfd < 0) return;
+    
+    cJSON* message = cJSON_CreateObject();
+    if (!message) return;
+    
+    cJSON* board_array = cJSON_CreateArray();
+    if (!board_array) {
+        cJSON_Delete(message);
+        return;
+    }
+    
+    pthread_mutex_lock(&gameMutex);
+    
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        char row_str[BOARD_SIZE + 1];
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            row_str[j] = gameState.board[i][j];
+        }
+        row_str[BOARD_SIZE] = '\0';
+        cJSON_AddItemToArray(board_array, cJSON_CreateString(row_str));
+    }
+    
+    pthread_mutex_unlock(&gameMutex);
+    
+    cJSON_AddStringToObject(message, "type", "board_update");
+    cJSON_AddItemToObject(message, "board", board_array);
+    
+    char* json_str = cJSON_PrintUnformatted(message);
+    if (json_str) {
+        if (send(board_sockfd, json_str, strlen(json_str), MSG_NOSIGNAL) < 0) {
+            safePrint("Failed to send board update to LED display\n");
+            board_connected = 0;
+        } else {
+            send(board_sockfd, "\n", 1, MSG_NOSIGNAL);
+        }
+        free(json_str);
+    }
+    
+    cJSON_Delete(message);
+}
+
 
 void safePrint(const char* format, ...) {
     pthread_mutex_lock(&printMutex);
@@ -3614,6 +3704,14 @@ void sendRegister(const char* username) {
     cJSON* message = cJSON_CreateObject();
     cJSON_AddStringToObject(message, "type", "register");
     cJSON_AddStringToObject(message, "username", username);
+    
+    // Add mode information
+    if (humanMode) {
+        cJSON_AddStringToObject(message, "mode", "human");
+    } else {
+        cJSON_AddStringToObject(message, "mode", "ai");
+    }
+    
     sendJSON(message);
     cJSON_Delete(message);
 }
@@ -3655,7 +3753,11 @@ void updateBoardFromJSON(cJSON* board_array) {
     gameState.gamePhase = getGamePhase(gameState.board);
     
     pthread_mutex_unlock(&gameMutex);
+    
+    // Send update to board server
+    sendBoardUpdate();
 }
+
 
 void printBoard() {
     pthread_mutex_lock(&gameMutex);
@@ -4009,6 +4111,10 @@ void cleanup() {
         close(sockfd);
         sockfd = -1;
     }
+    if (board_sockfd >= 0) {
+        close(board_sockfd);
+        board_sockfd = -1;
+    }
     cleanupAISystem();
 }
 
@@ -4179,11 +4285,16 @@ int main(int argc, char *argv[]) {
     
     memset(my_username, 0, sizeof(my_username));
     
+    // Argument parsing with board server options
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-ip") == 0 && i + 1 < argc) {
             strcpy(server_addr, argv[++i]);
         } else if (strcmp(argv[i], "-port") == 0 && i + 1 < argc) {
             strcpy(server_port, argv[++i]);
+        } else if (strcmp(argv[i], "-board-ip") == 0 && i + 1 < argc) {
+            strcpy(board_server_addr, argv[++i]);
+        } else if (strcmp(argv[i], "-board-port") == 0 && i + 1 < argc) {
+            strcpy(board_server_port, argv[++i]);
         } else if (strcmp(argv[i], "-username") == 0 && i + 1 < argc) {
             strcpy(my_username, argv[++i]);
         } else if (strcmp(argv[i], "-engine") == 0 && i + 1 < argc) {
@@ -4202,7 +4313,8 @@ int main(int argc, char *argv[]) {
     
     printf("\n=== OctaFlip Client (Ultimate AI ) ===\n");
     printf("Username: %s\n", my_username);
-    printf("Server: %s:%s\n", server_addr, server_port);
+    printf("Game Server: %s:%s\n", server_addr, server_port);
+    printf("Board Server: %s:%s\n", board_server_addr, board_server_port);
     
     if (humanMode) {
         printf("Mode: Human Player\n");
@@ -4246,7 +4358,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < 20; i++) {
             printf("  %d = %s\n", i + 1, engineNames[i]);
         }
-        printf("\nUsage: %s -engine <1-20> [-human]\n", argv[0]);
+        printf("\nUsage: %s -engine <1-20> [-human] [-board-ip <ip>] [-board-port <port>]\n", argv[0]);
     }
     
     if (!humanMode) {
@@ -4266,6 +4378,7 @@ int main(int argc, char *argv[]) {
     
     signal(SIGINT, sigint_handler);
     
+    // Connect to game server
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -4284,7 +4397,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     
-    printf("\nConnecting to %s:%s...\n", server_addr, server_port);
+    printf("\nConnecting to game server %s:%s...\n", server_addr, server_port);
     status = connect(sockfd, res->ai_addr, res->ai_addrlen);
     if (status == -1) {
         perror("connect error");
@@ -4292,10 +4405,25 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     
-    printf("✅ Connected to server!\n\n");
+    printf("✅ Connected to game server!\n");
     
+    // Try to connect to board server
+    printf("\nConnecting to board server %s:%s...\n", board_server_addr, board_server_port);
+    if (connectToBoardServer() == 0) {
+        // Send initial board state
+        printf("Sending initial board state to LED display...\n");
+        sendBoardUpdate();
+    } else {
+        printf("⚠️  Board server not available - LED display will not be updated\n");
+        printf("   (Game will continue without LED display)\n");
+    }
+    
+    printf("\n");
+    
+    // Register to game server
     sendRegister(my_username);
     
+    // Create receiver thread
     pthread_t receiver_thread;
     if (pthread_create(&receiver_thread, NULL, receiveMessages, NULL) != 0) {
         perror("pthread_create error");
@@ -4303,6 +4431,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     
+    // Wait for receiver thread to finish
     pthread_join(receiver_thread, NULL);
     
     printf("\nGame session ended. Goodbye!\n");
