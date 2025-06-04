@@ -1,29 +1,56 @@
+// board.c - OctaFlip LED Display Implementation (Hardware Fixed)
+// Team Shannon - Assignment 3
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <math.h>
+#include <signal.h>
+#include <pthread.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include "board.h"
+
+// Only include if building with LED support
+#ifdef HAS_LED_MATRIX
 #include "led-matrix-c.h"
+#endif
 
-#define BOARD_SIZE 8
-#define CELL_SIZE 8
-#define PIECE_SIZE 6
-#define MATRIX_SIZE 64
+// For network mode
+#ifdef ENABLE_NETWORK_MODE
+#include "cJSON.h"
+#endif
 
-// 색상 정의
+// Game piece definitions
+#define RED 'R'
+#define BLUE 'B'
+#define EMPTY '.'
+#define BLOCKED '#'
+
+// Enhanced color definitions
 #define COLOR_RED_R 255
-#define COLOR_RED_G 0
-#define COLOR_RED_B 0
+#define COLOR_RED_G 30
+#define COLOR_RED_B 30
 
-#define COLOR_BLUE_R 0
-#define COLOR_BLUE_G 100
+#define COLOR_BLUE_R 30
+#define COLOR_BLUE_G 120
 #define COLOR_BLUE_B 255
 
 #define COLOR_EMPTY_R 0
 #define COLOR_EMPTY_G 0
 #define COLOR_EMPTY_B 0
 
-// 그리드 색상
+#define COLOR_GRID_R 80
+#define COLOR_GRID_G 80
+#define COLOR_GRID_B 80
+
+#define COLOR_BLOCKED_R 80
+#define COLOR_BLOCKED_G 80
+#define COLOR_BLOCKED_B 80
+
+// Grid colors (from paste.txt)
 #define COLOR_GRID_OUTER_R 50
 #define COLOR_GRID_OUTER_G 50
 #define COLOR_GRID_OUTER_B 50
@@ -32,7 +59,7 @@
 #define COLOR_GRID_INNER_G 80
 #define COLOR_GRID_INNER_B 80
 
-// 다양한 색상 팔레트
+// Team colors for animation
 #define COLOR_TEAM_R 255
 #define COLOR_TEAM_G 200
 #define COLOR_TEAM_B 0
@@ -45,27 +72,18 @@
 #define COLOR_STAR2_G 100
 #define COLOR_STAR2_B 200
 
-#define COLOR_GRADIENT1_R 100
-#define COLOR_GRADIENT1_G 50
-#define COLOR_GRADIENT1_B 255
+// Global variables
+static char current_board[BOARD_SIZE][BOARD_SIZE];
+static pthread_mutex_t board_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int running = 1;
 
-#define COLOR_GRADIENT2_R 50
-#define COLOR_GRADIENT2_G 255
-#define COLOR_GRADIENT2_B 100
-
-#define COLOR_PARTICLE_R 200
-#define COLOR_PARTICLE_G 100
-#define COLOR_PARTICLE_B 255
-
-// 전역 게임 보드
-char board[BOARD_SIZE][BOARD_SIZE];
-
-// LED Matrix 전역 변수
-struct RGBLedMatrix *matrix = NULL;
-struct LedCanvas *canvas = NULL;
+#ifdef HAS_LED_MATRIX
+static struct RGBLedMatrix *matrix = NULL;
+static struct LedCanvas *canvas = NULL;
+static struct LedCanvas *offscreen_canvas = NULL;
 
 // 5x7 대문자 폰트 (A-Z)
-const uint8_t font5x7[26][7] = {
+static const uint8_t font5x7[26][7] = {
     {0x1E, 0x11, 0x1F, 0x11, 0x11, 0x00, 0x00}, // A
     {0x1E, 0x11, 0x1E, 0x11, 0x1E, 0x00, 0x00}, // B
     {0x0F, 0x10, 0x10, 0x10, 0x0F, 0x00, 0x00}, // C
@@ -93,9 +111,40 @@ const uint8_t font5x7[26][7] = {
     {0x11, 0x11, 0x0E, 0x04, 0x04, 0x00, 0x00}, // Y
     {0x1F, 0x02, 0x04, 0x08, 0x1F, 0x00, 0x00}  // Z
 };
+#endif
 
-// 콘솔에 팀 이름 표시
-void displayTeamName() {
+// Internal function prototypes
+static void display_on_matrix(void);
+static int validate_board_line(const char* line, int row_num);
+static void console_print_team_banner(void);
+static void console_print_game_over(int red_score, int blue_score);
+
+#ifdef HAS_LED_MATRIX
+static void draw_text_manual(const char* text, int start_x, int start_y, int r, int g, int b);
+static void draw_small_star(int cx, int cy, int r, int g, int b);
+static void draw_big_star(int cx, int cy, int r, int g, int b);
+static void show_team_name_animation(void);
+static void show_victory_animation(int winner_r, int winner_g, int winner_b);
+static void swap_canvas(void);
+static void draw_grid_lines(void);
+static void draw_piece(int row, int col, char piece);
+#endif
+
+#ifdef STANDALONE_BUILD
+static void init_board_state(void);
+static void sighandler(int sig);
+#endif
+
+// Signal handler (only for standalone)
+#ifdef STANDALONE_BUILD
+static void sighandler(int sig) {
+    (void)sig;
+    running = 0;
+}
+#endif
+
+// Console team banner
+static void console_print_team_banner(void) {
     printf("\n");
     printf("╔═══════════════════════════════════════════════════════════════╗\n");
     printf("║                                                               ║\n");
@@ -119,8 +168,47 @@ void displayTeamName() {
     printf("\n");
 }
 
+// Console game over display
+static void console_print_game_over(int red_score, int blue_score) {
+    printf("\n");
+    printf("  ╔═══════════════════════════════════════════════════════════╗\n");
+    printf("  ║                     🏁 GAME OVER! 🏁                      ║\n");
+    printf("  ╠═══════════════════════════════════════════════════════════╣\n");
+    printf("  ║                                                           ║\n");
+    printf("  ║     Red Player  🔴 : %3d pieces                          ║\n", red_score);
+    printf("  ║     Blue Player 🔵 : %3d pieces                          ║\n", blue_score);
+    printf("  ║                                                           ║\n");
+    
+    if (red_score > blue_score) {
+        printf("  ║              🎉 RED PLAYER WINS! 🎉                      ║\n");
+        printf("  ║                    🔴🔴🔴🔴🔴                           ║\n");
+    } else if (blue_score > red_score) {
+        printf("  ║              🎉 BLUE PLAYER WINS! 🎉                     ║\n");
+        printf("  ║                    🔵🔵🔵🔵🔵                           ║\n");
+    } else {
+        printf("  ║                  🤝 IT'S A DRAW! 🤝                      ║\n");
+        printf("  ║                    🔴🤝🔵                               ║\n");
+    }
+    
+    printf("  ║                                                           ║\n");
+    printf("  ╚═══════════════════════════════════════════════════════════╝\n");
+    printf("\n");
+    printf("  Thank you for playing! - Team Shannon 💫\n");
+    printf("\n");
+}
+
+#ifdef HAS_LED_MATRIX
+// Swap canvas for double buffering
+static void swap_canvas(void) {
+    if (matrix && offscreen_canvas) {
+        offscreen_canvas = led_matrix_swap_on_vsync(matrix, offscreen_canvas);
+    }
+}
+
 // LED 매트릭스에 글자 그리기 (manual)
-void drawTextManual(const char* text, int start_x, int start_y, int r, int g, int b) {
+static void draw_text_manual(const char* text, int start_x, int start_y, int r, int g, int b) {
+    if (!offscreen_canvas) return;
+    
     const int char_width = 5;
     const int spacing = 1;
 
@@ -136,7 +224,7 @@ void drawTextManual(const char* text, int start_x, int start_y, int r, int g, in
                 uint8_t row = font5x7[index][y];
                 for (int x = 0; x < char_width; x++) {
                     if (row & (1 << (4 - x))) {
-                        led_canvas_set_pixel(canvas, x_offset + x, start_y + y, r, g, b);
+                        led_canvas_set_pixel(offscreen_canvas, x_offset + x, start_y + y, r, g, b);
                     }
                 }
             }
@@ -145,94 +233,106 @@ void drawTextManual(const char* text, int start_x, int start_y, int r, int g, in
 }
 
 // 작은 별 그리기
-void drawSmallStar(int cx, int cy, int r, int g, int b) {
-    led_canvas_set_pixel(canvas, cx, cy, r, g, b);
-    led_canvas_set_pixel(canvas, cx-1, cy, r, g, b);
-    led_canvas_set_pixel(canvas, cx+1, cy, r, g, b);
-    led_canvas_set_pixel(canvas, cx, cy-1, r, g, b);
-    led_canvas_set_pixel(canvas, cx, cy+1, r, g, b);
+static void draw_small_star(int cx, int cy, int r, int g, int b) {
+    if (!offscreen_canvas) return;
+    
+    if (cx >= 0 && cx < MATRIX_SIZE && cy >= 0 && cy < MATRIX_SIZE) {
+        led_canvas_set_pixel(offscreen_canvas, cx, cy, r, g, b);
+    }
+    if (cx-1 >= 0 && cy >= 0 && cy < MATRIX_SIZE) {
+        led_canvas_set_pixel(offscreen_canvas, cx-1, cy, r, g, b);
+    }
+    if (cx+1 < MATRIX_SIZE && cy >= 0 && cy < MATRIX_SIZE) {
+        led_canvas_set_pixel(offscreen_canvas, cx+1, cy, r, g, b);
+    }
+    if (cx >= 0 && cx < MATRIX_SIZE && cy-1 >= 0) {
+        led_canvas_set_pixel(offscreen_canvas, cx, cy-1, r, g, b);
+    }
+    if (cx >= 0 && cx < MATRIX_SIZE && cy+1 < MATRIX_SIZE) {
+        led_canvas_set_pixel(offscreen_canvas, cx, cy+1, r, g, b);
+    }
 }
 
 // 큰 별 그리기
-void drawBigStar(int cx, int cy, int r, int g, int b) {
-    led_canvas_set_pixel(canvas, cx, cy, r, g, b);
+static void draw_big_star(int cx, int cy, int r, int g, int b) {
+    if (!offscreen_canvas) return;
+    
+    led_canvas_set_pixel(offscreen_canvas, cx, cy, r, g, b);
     
     for (int i = 1; i <= 3; i++) {
-        led_canvas_set_pixel(canvas, cx-i, cy, r, g, b);
-        led_canvas_set_pixel(canvas, cx+i, cy, r, g, b);
-        led_canvas_set_pixel(canvas, cx, cy-i, r, g, b);
-        led_canvas_set_pixel(canvas, cx, cy+i, r, g, b);
+        if (cx-i >= 0) led_canvas_set_pixel(offscreen_canvas, cx-i, cy, r, g, b);
+        if (cx+i < MATRIX_SIZE) led_canvas_set_pixel(offscreen_canvas, cx+i, cy, r, g, b);
+        if (cy-i >= 0) led_canvas_set_pixel(offscreen_canvas, cx, cy-i, r, g, b);
+        if (cy+i < MATRIX_SIZE) led_canvas_set_pixel(offscreen_canvas, cx, cy+i, r, g, b);
     }
     
     for (int i = 1; i <= 2; i++) {
-        led_canvas_set_pixel(canvas, cx-i, cy-i, r/2, g/2, b/2);
-        led_canvas_set_pixel(canvas, cx+i, cy-i, r/2, g/2, b/2);
-        led_canvas_set_pixel(canvas, cx-i, cy+i, r/2, g/2, b/2);
-        led_canvas_set_pixel(canvas, cx+i, cy+i, r/2, g/2, b/2);
+        if (cx-i >= 0 && cy-i >= 0) 
+            led_canvas_set_pixel(offscreen_canvas, cx-i, cy-i, r/2, g/2, b/2);
+        if (cx+i < MATRIX_SIZE && cy-i >= 0) 
+            led_canvas_set_pixel(offscreen_canvas, cx+i, cy-i, r/2, g/2, b/2);
+        if (cx-i >= 0 && cy+i < MATRIX_SIZE) 
+            led_canvas_set_pixel(offscreen_canvas, cx-i, cy+i, r/2, g/2, b/2);
+        if (cx+i < MATRIX_SIZE && cy+i < MATRIX_SIZE) 
+            led_canvas_set_pixel(offscreen_canvas, cx+i, cy+i, r/2, g/2, b/2);
     }
 }
 
-// 배경 파티클 효과
-void drawBackgroundParticles(int frame) {
-    for (int i = 0; i < 10; i++) {
-        int x = (frame * 2 + i * 7) % MATRIX_SIZE;
-        int y = (frame + i * 5) % MATRIX_SIZE;
-        led_canvas_set_pixel(canvas, x, y, 
-                           COLOR_PARTICLE_R/4, COLOR_PARTICLE_G/4, COLOR_PARTICLE_B/4);
-    }
-}
-
-// LED 매트릭스에 팀 이름 표시 (예쁘게 꾸미기)
-void showTeamNameOnMatrix() {
-    if (!canvas) return;
+// Team name animation
+static void show_team_name_animation(void) {
+    if (!offscreen_canvas || !matrix) return;
     
-    // 애니메이션 프레임
-    for (int frame = 0; frame < 180; frame++) {
-        led_canvas_clear(canvas);
+    // Animation frames
+    for (int frame = 0; frame < 180 && running; frame++) {
+        led_canvas_clear(offscreen_canvas);
         
-        // 배경 그라데이션
+        // Background gradient
         for (int y = 0; y < MATRIX_SIZE; y++) {
             int bg_intensity = (y * 30) / MATRIX_SIZE;
             for (int x = 0; x < MATRIX_SIZE; x++) {
-                led_canvas_set_pixel(canvas, x, y, 
+                led_canvas_set_pixel(offscreen_canvas, x, y, 
                                    bg_intensity/3, 0, bg_intensity/2);
             }
         }
         
-        // 배경 파티클
-        drawBackgroundParticles(frame);
-        
-        // TEAM SHANNON 텍스트 (깜빡임 효과)
-        if (frame < 60 || (frame >= 70 && frame < 130) || frame >= 140) {
-            drawTextManual("TEAM", 18, 18, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
-            drawTextManual("SHANNON", 8, 28, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+        // Background particles
+        for (int i = 0; i < 10; i++) {
+            int x = (frame * 2 + i * 7) % MATRIX_SIZE;
+            int y = (frame + i * 5) % MATRIX_SIZE;
+            led_canvas_set_pixel(offscreen_canvas, x, y, 50, 25, 63);
         }
         
-        // 회전하는 큰 별들 (모서리)
-        int star_offset = (frame % 20) < 10 ? 0 : 1;
-        drawBigStar(10 + star_offset, 10, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
-        drawBigStar(54 - star_offset, 10, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
-        drawBigStar(10 + star_offset, 54, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
-        drawBigStar(54 - star_offset, 54, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
+        // TEAM SHANNON text (blinking effect)
+        if (frame < 60 || (frame >= 70 && frame < 130) || frame >= 140) {
+            draw_text_manual("TEAM", 18, 18, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+            draw_text_manual("SHANNON", 8, 28, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+        }
         
-        // 작은 별들 (움직이는 효과)
+        // Rotating big stars (corners)
+        int star_offset = (frame % 20) < 10 ? 0 : 1;
+        draw_big_star(10 + star_offset, 10, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
+        draw_big_star(54 - star_offset, 10, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
+        draw_big_star(10 + star_offset, 54, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
+        draw_big_star(54 - star_offset, 54, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
+        
+        // Moving small stars
         for (int i = 0; i < 8; i++) {
             int star_x = (frame * 2 + i * 8) % MATRIX_SIZE;
             int star_y = 5 + (i % 2) * 50;
-            drawSmallStar(star_x, star_y, 200, 200, 100);
+            draw_small_star(star_x, star_y, 200, 200, 100);
         }
         
-        // 프레임 (무지개 효과)
+        // Rainbow frame border
         for (int x = 0; x < MATRIX_SIZE; x++) {
             int rainbow = (x + frame) % 60;
             int r = rainbow < 20 ? 255 : (rainbow < 40 ? 0 : 100);
             int g = rainbow < 20 ? 0 : (rainbow < 40 ? 255 : 100);
             int b = rainbow < 20 ? 100 : (rainbow < 40 ? 100 : 255);
             
-            led_canvas_set_pixel(canvas, x, 0, r, g, b);
-            led_canvas_set_pixel(canvas, x, 1, r/2, g/2, b/2);
-            led_canvas_set_pixel(canvas, x, MATRIX_SIZE-1, r, g, b);
-            led_canvas_set_pixel(canvas, x, MATRIX_SIZE-2, r/2, g/2, b/2);
+            led_canvas_set_pixel(offscreen_canvas, x, 0, r, g, b);
+            led_canvas_set_pixel(offscreen_canvas, x, 1, r/2, g/2, b/2);
+            led_canvas_set_pixel(offscreen_canvas, x, MATRIX_SIZE-1, r, g, b);
+            led_canvas_set_pixel(offscreen_canvas, x, MATRIX_SIZE-2, r/2, g/2, b/2);
         }
         
         for (int y = 2; y < MATRIX_SIZE-2; y++) {
@@ -241,201 +341,425 @@ void showTeamNameOnMatrix() {
             int g = rainbow < 20 ? 0 : (rainbow < 40 ? 255 : 100);
             int b = rainbow < 20 ? 100 : (rainbow < 40 ? 100 : 255);
             
-            led_canvas_set_pixel(canvas, 0, y, r, g, b);
-            led_canvas_set_pixel(canvas, 1, y, r/2, g/2, b/2);
-            led_canvas_set_pixel(canvas, MATRIX_SIZE-1, y, r, g, b);
-            led_canvas_set_pixel(canvas, MATRIX_SIZE-2, y, r/2, g/2, b/2);
+            led_canvas_set_pixel(offscreen_canvas, 0, y, r, g, b);
+            led_canvas_set_pixel(offscreen_canvas, 1, y, r/2, g/2, b/2);
+            led_canvas_set_pixel(offscreen_canvas, MATRIX_SIZE-1, y, r, g, b);
+            led_canvas_set_pixel(offscreen_canvas, MATRIX_SIZE-2, y, r/2, g/2, b/2);
         }
         
-        usleep(16667); // 약 60fps
+        swap_canvas();
+        usleep(16667); // ~60fps
     }
     
-    // 최종 정적 이미지
-    led_canvas_clear(canvas);
+    // Final static display
+    led_canvas_clear(offscreen_canvas);
     
-    // 배경
+    // Background
     for (int y = 0; y < MATRIX_SIZE; y++) {
         int bg_intensity = (y * 30) / MATRIX_SIZE;
         for (int x = 0; x < MATRIX_SIZE; x++) {
-            led_canvas_set_pixel(canvas, x, y, bg_intensity/3, 0, bg_intensity/2);
+            led_canvas_set_pixel(offscreen_canvas, x, y, bg_intensity/3, 0, bg_intensity/2);
         }
     }
     
-    // 텍스트
-    drawTextManual("TEAM", 18, 18, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
-    drawTextManual("SHANNON", 8, 28, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+    // Text
+    draw_text_manual("TEAM", 18, 18, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
+    draw_text_manual("SHANNON", 8, 28, COLOR_TEAM_R, COLOR_TEAM_G, COLOR_TEAM_B);
     
-    // 별들
-    drawBigStar(10, 10, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
-    drawBigStar(54, 10, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
-    drawBigStar(10, 54, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
-    drawBigStar(54, 54, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
+    // Stars
+    draw_big_star(10, 10, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
+    draw_big_star(54, 10, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
+    draw_big_star(10, 54, COLOR_STAR2_R, COLOR_STAR2_G, COLOR_STAR2_B);
+    draw_big_star(54, 54, COLOR_STAR1_R, COLOR_STAR1_G, COLOR_STAR1_B);
     
-    // 프레임
+    // Frame
     for (int x = 0; x < MATRIX_SIZE; x++) {
-        led_canvas_set_pixel(canvas, x, 0, 100, 100, 255);
-        led_canvas_set_pixel(canvas, x, MATRIX_SIZE-1, 100, 100, 255);
+        led_canvas_set_pixel(offscreen_canvas, x, 0, 100, 100, 255);
+        led_canvas_set_pixel(offscreen_canvas, x, MATRIX_SIZE-1, 100, 100, 255);
     }
     for (int y = 0; y < MATRIX_SIZE; y++) {
-        led_canvas_set_pixel(canvas, 0, y, 100, 100, 255);
-        led_canvas_set_pixel(canvas, MATRIX_SIZE-1, y, 100, 100, 255);
+        led_canvas_set_pixel(offscreen_canvas, 0, y, 100, 100, 255);
+        led_canvas_set_pixel(offscreen_canvas, MATRIX_SIZE-1, y, 100, 100, 255);
     }
     
-    usleep(1000000); // 1초간 유지
+    swap_canvas();
+    sleep(1);
 }
 
-// LED Matrix 초기화
-int initLEDMatrix() {
-    struct RGBLedMatrixOptions options;
-    struct RGBLedRuntimeOptions rt_options;
+// Victory animation
+static void show_victory_animation(int winner_r, int winner_g, int winner_b) {
+    if (!offscreen_canvas || !matrix) return;
     
-    memset(&options, 0, sizeof(options));
-    memset(&rt_options, 0, sizeof(rt_options));
-    
-    options.rows = 64;
-    options.cols = 64;
-    options.chain_length = 1;
-    options.parallel = 1;
-    options.hardware_mapping = "regular";
-    options.brightness = 80;
-    options.disable_hardware_pulsing = 1;
-    
-    rt_options.gpio_slowdown = 4;
-    rt_options.drop_privileges = 1;
-    
-    matrix = led_matrix_create_from_options_and_rt_options(&options, &rt_options);
-    
-    if (matrix == NULL) {
-        fprintf(stderr, "Error: Failed to create LED matrix\n");
-        return -1;
+    // Fireworks effect
+    for (int burst = 0; burst < 5 && running; burst++) {
+        int cx = rand() % (MATRIX_SIZE - 20) + 10;
+        int cy = rand() % (MATRIX_SIZE - 20) + 10;
+        
+        for (int radius = 0; radius < 20 && running; radius++) {
+            led_canvas_clear(offscreen_canvas);
+            
+            // Draw expanding circle
+            for (int angle = 0; angle < 360; angle += 10) {
+                int x = cx + radius * cos(angle * M_PI / 180);
+                int y = cy + radius * sin(angle * M_PI / 180);
+                
+                if (x >= 0 && x < MATRIX_SIZE && y >= 0 && y < MATRIX_SIZE) {
+                    int fade = 255 - (radius * 12);
+                    if (fade > 0) {
+                        led_canvas_set_pixel(offscreen_canvas, x, y,
+                            winner_r * fade / 255,
+                            winner_g * fade / 255,
+                            winner_b * fade / 255);
+                    }
+                }
+            }
+            
+            // Add sparkles
+            for (int i = 0; i < 5; i++) {
+                int sx = cx + (rand() % (radius * 2 + 1)) - radius;
+                int sy = cy + (rand() % (radius * 2 + 1)) - radius;
+                if (sx >= 0 && sx < MATRIX_SIZE && sy >= 0 && sy < MATRIX_SIZE) {
+                    led_canvas_set_pixel(offscreen_canvas, sx, sy, 255, 255, 255);
+                }
+            }
+            
+            swap_canvas();
+            usleep(50000);
+        }
     }
-    
-    canvas = led_matrix_get_canvas(matrix);
-    return 0;
 }
 
-// 그리드 라인 그리기 (지정된 위치에)
-void drawGridLines() {
-    // 그리드 위치: 0,7,8,15,16,23,24,31,32,39,40,47,48,55,56,63
+// Draw grid lines (from paste.txt approach)
+static void draw_grid_lines(void) {
+    if (!offscreen_canvas) return;
+    
+    // Grid positions: 0,7,8,15,16,23,24,31,32,39,40,47,48,55,56,63
     int grid_positions[] = {0, 7, 8, 15, 16, 23, 24, 31, 32, 39, 40, 47, 48, 55, 56, 63};
     int num_positions = sizeof(grid_positions) / sizeof(grid_positions[0]);
     
-    // 가로선 그리기
+    // Draw horizontal grid lines
     for (int i = 0; i < num_positions; i++) {
         int y = grid_positions[i];
         
-        // 가장자리 (0, 63)는 1픽셀
+        // Edge lines (0, 63) are darker
         if (y == 0 || y == 63) {
             for (int x = 0; x < MATRIX_SIZE; x++) {
-                led_canvas_set_pixel(canvas, x, y, COLOR_GRID_OUTER_R, COLOR_GRID_OUTER_G, COLOR_GRID_OUTER_B);
+                led_canvas_set_pixel(offscreen_canvas, x, y, COLOR_GRID_OUTER_R, COLOR_GRID_OUTER_G, COLOR_GRID_OUTER_B);
             }
         } else {
-            // 내부는 더 밝은 색
+            // Inner lines are brighter
             for (int x = 0; x < MATRIX_SIZE; x++) {
-                led_canvas_set_pixel(canvas, x, y, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
+                led_canvas_set_pixel(offscreen_canvas, x, y, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
             }
         }
     }
     
-    // 세로선 그리기
+    // Draw vertical grid lines
     for (int i = 0; i < num_positions; i++) {
         int x = grid_positions[i];
         
-        // 가장자리 (0, 63)는 1픽셀
+        // Edge lines (0, 63) are darker
         if (x == 0 || x == 63) {
             for (int y = 0; y < MATRIX_SIZE; y++) {
-                led_canvas_set_pixel(canvas, x, y, COLOR_GRID_OUTER_R, COLOR_GRID_OUTER_G, COLOR_GRID_OUTER_B);
+                led_canvas_set_pixel(offscreen_canvas, x, y, COLOR_GRID_OUTER_R, COLOR_GRID_OUTER_G, COLOR_GRID_OUTER_B);
             }
         } else {
-            // 내부는 더 밝은 색
+            // Inner lines are brighter
             for (int y = 0; y < MATRIX_SIZE; y++) {
-                led_canvas_set_pixel(canvas, x, y, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
+                led_canvas_set_pixel(offscreen_canvas, x, y, COLOR_GRID_INNER_R, COLOR_GRID_INNER_G, COLOR_GRID_INNER_B);
             }
         }
     }
 }
 
-// 말 그리기 (6x6 전체 채우기)
-void drawPiece(int row, int col, char piece) {
-    if (piece == '.') return; // 빈 공간은 아무것도 그리지 않음
+// Draw piece (from paste.txt approach - 6x6 full fill)
+static void draw_piece(int row, int col, char piece) {
+    if (!offscreen_canvas || piece == EMPTY) return;
     
-    // 각 셀의 시작 위치 계산
+    // Cell start positions
     int cell_x_starts[] = {1, 9, 17, 25, 33, 41, 49, 57};
     int cell_y_starts[] = {1, 9, 17, 25, 33, 41, 49, 57};
     
     int start_x = cell_x_starts[col];
     int start_y = cell_y_starts[row];
     
-    // 색상 결정
     int r, g, b;
-    if (piece == 'R') {
-        r = COLOR_RED_R;
-        g = COLOR_RED_G;
-        b = COLOR_RED_B;
-    } else if (piece == 'B') {
-        r = COLOR_BLUE_R;
-        g = COLOR_BLUE_G;
-        b = COLOR_BLUE_B;
-    } else if (piece == '#') {
-        r = COLOR_GRID_INNER_R;
-        g = COLOR_GRID_INNER_G;
-        b = COLOR_GRID_INNER_B;
-    } else {
-        return;
+    switch(piece) {
+        case RED:
+            r = COLOR_RED_R;
+            g = COLOR_RED_G;
+            b = COLOR_RED_B;
+            break;
+        case BLUE:
+            r = COLOR_BLUE_R;
+            g = COLOR_BLUE_G;
+            b = COLOR_BLUE_B;
+            break;
+        case BLOCKED:
+            r = COLOR_BLOCKED_R;
+            g = COLOR_BLOCKED_G;
+            b = COLOR_BLOCKED_B;
+            break;
+        default:
+            return;
     }
     
-    // 6x6 영역을 완전히 채우기
-    for (int py = 0; py < PIECE_SIZE; py++) {
-        for (int px = 0; px < PIECE_SIZE; px++) {
-            led_canvas_set_pixel(canvas, start_x + px, start_y + py, r, g, b);
+    // Fill 6x6 area
+    for (int y = 0; y < PIECE_SIZE; y++) {
+        for (int x = 0; x < PIECE_SIZE; x++) {
+            led_canvas_set_pixel(offscreen_canvas, start_x + x, start_y + y, r, g, b);
         }
     }
 }
+#endif
 
-// 보드를 LED 매트릭스에 표시
-void displayBoardOnMatrix() {
-    if (!canvas) return;
+// Initialize LED display (from paste.txt approach)
+int init_led_display(void) {
+#ifdef HAS_LED_MATRIX
+    struct RGBLedMatrixOptions options;
+    struct RGBLedRuntimeOptions rt_options;
     
+    memset(&options, 0, sizeof(options));
+    memset(&rt_options, 0, sizeof(rt_options));
+    
+    // Hardware options (matching paste.txt)
+    options.rows = 64;
+    options.cols = 64;
+    options.chain_length = 1;
+    options.parallel = 1;
+    options.hardware_mapping = "regular";
+    options.brightness = 80;
+    options.disable_hardware_pulsing = 1;  // Critical from paste.txt
+    
+    // Runtime options (matching paste.txt)
+    rt_options.gpio_slowdown = 4;
+    rt_options.drop_privileges = 1;  // Changed from original board.c to match paste.txt
+    
+    fprintf(stderr, "Creating LED matrix with settings from paste.txt...\n");
+    matrix = led_matrix_create_from_options_and_rt_options(&options, &rt_options);
+    
+    if (matrix == NULL) {
+        fprintf(stderr, "Error: Failed to create LED matrix\n");
+        fprintf(stderr, "Make sure to run with sudo\n");
+        return -1;
+    }
+    
+    fprintf(stderr, "LED matrix created successfully\n");
+    
+    // Get canvas
+    canvas = led_matrix_get_canvas(matrix);
+    offscreen_canvas = led_matrix_create_offscreen_canvas(matrix);
+    
+    if (!canvas || !offscreen_canvas) {
+        fprintf(stderr, "Error: Failed to create canvas\n");
+        led_matrix_delete(matrix);
+        matrix = NULL;
+        return -1;
+    }
+    
+    // Clear display
     led_canvas_clear(canvas);
-    drawGridLines();
+    led_canvas_clear(offscreen_canvas);
     
+    fprintf(stderr, "LED display initialized successfully\n");
+    return 0;
+#else
+    return 0;
+#endif
+}
+
+// Cleanup LED display
+void cleanup_led_display(void) {
+#ifdef HAS_LED_MATRIX
+    if (matrix) {
+        fprintf(stderr, "Cleaning up LED display...\n");
+        
+        // Clear display before shutdown
+        if (canvas) {
+            led_canvas_clear(canvas);
+        }
+        if (offscreen_canvas) {
+            led_canvas_clear(offscreen_canvas);
+            swap_canvas();
+        }
+        
+        led_matrix_delete(matrix);
+        matrix = NULL;
+        canvas = NULL;
+        offscreen_canvas = NULL;
+        
+        fprintf(stderr, "LED display cleaned up\n");
+    }
+#endif
+}
+
+// Render board to LED matrix
+void render_board_to_led(char board[BOARD_SIZE][BOARD_SIZE]) {
+    pthread_mutex_lock(&board_mutex);
+    
+    // Copy board state
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            current_board[i][j] = board[i][j];
+        }
+    }
+    
+    // Display on matrix
+    display_on_matrix();
+    
+    pthread_mutex_unlock(&board_mutex);
+}
+
+// Show team name on LED
+void show_team_name_on_led(void) {
+#ifdef HAS_LED_MATRIX
+    if (!offscreen_canvas) return;
+    
+    show_team_name_animation();
+#else
+    console_print_team_banner();
+#endif
+}
+
+// Game over animation
+void show_game_over_animation(int red_score, int blue_score) {
+#ifdef HAS_LED_MATRIX
+    if (!offscreen_canvas) return;
+    
+    // Determine winner color
+    int winner_r, winner_g, winner_b;
+    const char* winner_text;
+    
+    if (red_score > blue_score) {
+        winner_r = COLOR_RED_R;
+        winner_g = COLOR_RED_G;
+        winner_b = COLOR_RED_B;
+        winner_text = "RED WINS";
+    } else if (blue_score > red_score) {
+        winner_r = COLOR_BLUE_R;
+        winner_g = COLOR_BLUE_G;
+        winner_b = COLOR_BLUE_B;
+        winner_text = "BLUE WINS";
+    } else {
+        winner_r = 150;
+        winner_g = 150;
+        winner_b = 150;
+        winner_text = "DRAW";
+    }
+    
+    // Victory animation
+    show_victory_animation(winner_r, winner_g, winner_b);
+    
+    // Display result text
+    led_canvas_clear(offscreen_canvas);
+    
+    // Background with winner color
+    for (int y = 0; y < MATRIX_SIZE; y++) {
+        for (int x = 0; x < MATRIX_SIZE; x++) {
+            led_canvas_set_pixel(offscreen_canvas, x, y, 
+                winner_r / 8, winner_g / 8, winner_b / 8);
+        }
+    }
+    
+    // Winner text
+    int text_x = (MATRIX_SIZE - strlen(winner_text) * 6) / 2;
+    draw_text_manual(winner_text, text_x, 20, 255, 255, 255);
+    
+    // Score display
+    char score_text[32];
+    sprintf(score_text, "R %d B %d", red_score, blue_score);
+    draw_text_manual(score_text, 10, 35, 255, 255, 255);
+    
+    swap_canvas();
+    sleep(3);
+#else
+    console_print_game_over(red_score, blue_score);
+#endif
+}
+
+// Internal: Display board on matrix
+static void display_on_matrix(void) {
+#ifdef HAS_LED_MATRIX
+    if (!offscreen_canvas) return;
+    
+    // Clear canvas
+    led_canvas_clear(offscreen_canvas);
+    
+    // Draw grid first
+    draw_grid_lines();
+    
+    // Draw all pieces
     for (int row = 0; row < BOARD_SIZE; row++) {
         for (int col = 0; col < BOARD_SIZE; col++) {
-            drawPiece(row, col, board[row][col]);
+            draw_piece(row, col, current_board[row][col]);
         }
     }
-}
-
-// 콘솔에 보드 상태 출력
-void printBoard() {
-    printf("\nCurrent Board State:\n");
-    printf("  1 2 3 4 5 6 7 8\n");
+    
+    // Swap buffers
+    swap_canvas();
+#else
+    // Console display
+    printf("\n  1 2 3 4 5 6 7 8\n");
     for (int i = 0; i < BOARD_SIZE; i++) {
         printf("%d ", i + 1);
         for (int j = 0; j < BOARD_SIZE; j++) {
-            printf("%c ", board[i][j]);
+            printf("%c ", current_board[i][j]);
         }
         printf("\n");
     }
-    printf("\n");
+    printf("\nRed (R): 🔴  Blue (B): 🔵  Empty (.): ⚪  Blocked (#): ⬛\n");
+#endif
 }
 
-// 메인 함수
-int main() {
-    // 팀 이름 표시
-    displayTeamName();
+#ifdef STANDALONE_BUILD
+// Internal: Initialize board state
+static void init_board_state(void) {
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            current_board[i][j] = EMPTY;
+        }
+    }
+    current_board[0][0] = RED;
+    current_board[0][7] = BLUE;
+    current_board[7][0] = BLUE;
+    current_board[7][7] = RED;
+}
+#endif
+
+// Internal: Validate board line
+static int validate_board_line(const char* line, int row_num) {
+    int len = strlen(line);
     
-    // LED Matrix 초기화
-    printf("Initializing LED Matrix...\n");
-    if (initLEDMatrix() != 0) {
-        printf("Warning: Unable to initialize LED matrix. Running in console mode.\n");
-    } else {
-        printf("LED Matrix initialized successfully!\n");
-        // 팀 이름 애니메이션 표시
-        showTeamNameOnMatrix();
+    // Remove newline
+    while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
+        len--;
     }
     
-    // 보드 입력 안내
+    if (len != BOARD_SIZE) {
+        fprintf(stderr, "Error: Row %d must have exactly %d characters (found %d)\n", 
+                row_num, BOARD_SIZE, len);
+        return 0;
+    }
+    
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        if (line[i] != RED && line[i] != BLUE && 
+            line[i] != EMPTY && line[i] != BLOCKED) {
+            fprintf(stderr, "Error: Invalid character '%c' at position %d in row %d\n", 
+                    line[i], i+1, row_num);
+            return 0;
+        }
+    }
+    
+    return 1;
+}
+
+// Standalone mode - read from stdin (FOR GRADING)
+int run_board_standalone(void) {
+    char line[BOARD_SIZE + 10];
+    
+    console_print_team_banner();
+    
+    // Show input instructions
     printf("\n=== Board State Input ===\n");
     printf("Please enter the 8x8 board state.\n");
     printf("Available characters:\n");
@@ -453,78 +777,166 @@ int main() {
     printf("........\n");
     printf("B......R\n");
     printf("===================\n\n");
-    printf("Paste your 8 rows below (exactly 8 characters per row WITHOUT SPACES):\n");
-    printf("↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓ ↓\n");
-    printf("--------------------------------------------------------------\n");
+    printf("Enter 8 rows (8 characters each):\n");
     
-    // Bulk 입력 받기 (8줄을 한번에)
-    char board_lines[BOARD_SIZE][BOARD_SIZE + 10];
-    
+    // Read 8 lines
     for (int i = 0; i < BOARD_SIZE; i++) {
-        if (fgets(board_lines[i], sizeof(board_lines[i]), stdin) == NULL) {
-            printf("Error reading input. Returning to main menu.\n");
-            if (matrix) led_matrix_delete(matrix);
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            fprintf(stderr, "Error reading line %d\n", i + 1);
             return 1;
         }
         
-        // 개행 문자 제거
-        int len = strlen(board_lines[i]);
-        if (len > 0 && board_lines[i][len - 1] == '\n') {
-            board_lines[i][len - 1] = '\0';
-            len--;
-        }
-        if (len > 0 && board_lines[i][len - 1] == '\r') {
-            board_lines[i][len - 1] = '\0';
-            len--;
-        }
+        // Remove newline
+        int len = strlen(line);
+        if (len > 0 && line[len-1] == '\n') line[len-1] = '\0';
         
-        // 라인 길이 확인
-        if (len != BOARD_SIZE) {
-            printf("Invalid line length for row %d. Each row must have exactly %d characters.\n", i+1, BOARD_SIZE);
-            printf("Returning to main menu.\n");
-            if (matrix) led_matrix_delete(matrix);
+        // Validate line
+        if (!validate_board_line(line, i + 1)) {
             return 1;
         }
         
-        // 유효한 문자 확인
+        // Copy to board
         for (int j = 0; j < BOARD_SIZE; j++) {
-            if (board_lines[i][j] != 'R' && board_lines[i][j] != 'B' && 
-                board_lines[i][j] != '.' && board_lines[i][j] != '#') {
-                printf("Invalid character '%c' at row %d, column %d. Use only R, B, ., or #.\n",
-                       board_lines[i][j], i+1, j+1);
-                printf("Returning to main menu.\n");
-                if (matrix) led_matrix_delete(matrix);
-                return 1;
-            }
-            
-            // 보드에 복사
-            board[i][j] = board_lines[i][j];
+            current_board[i][j] = line[j];
         }
     }
     
-    printf("--------------------------------------------------------------\n");
+    printf("\nBoard loaded successfully!\n");
     
-    // 보드 상태 출력
-    printf("\nInput Board:\n");
-    printBoard();
+#ifdef HAS_LED_MATRIX
+    // Show team name animation first
+    printf("Displaying team name animation...\n");
+    show_team_name_animation();
+#endif
     
-    // LED 매트릭스에 표시
-    if (canvas) {
-        printf("Displaying board on LED Matrix...\n");
-        displayBoardOnMatrix();
-        
-        // 종료 대기
-        printf("Press Enter to exit...\n");
-        getchar();
-    }
+    // Display on LED matrix
+    printf("Displaying board state...\n");
+    display_on_matrix();
     
-    // 정리
-    if (matrix) {
-        led_matrix_delete(matrix);
-    }
-    
-    printf("\nProgram terminated.\n");
-    printf("Team Shannon - OctaFlip LED Display\n");
+    // Keep display on for a while
+    printf("\nBoard displayed. Showing for 10 seconds...\n");
+    sleep(10);
     
     return 0;
 }
+
+// Network server mode (if enabled)
+int run_board_network_server(void) {
+#ifdef ENABLE_NETWORK_MODE
+    printf("Network server mode...\n");
+    // Implementation here if needed
+    return 0;
+#else
+    fprintf(stderr, "Network mode not enabled in this build\n");
+    return 1;
+#endif
+}
+
+// Manual input mode
+int run_board_manual_input(void) {
+    console_print_team_banner();
+    
+    printf("\n=== Manual Input Mode ===\n");
+    printf("Enter board state (8 lines, 8 characters each):\n");
+    printf("Use: R=Red, B=Blue, .=Empty, #=Blocked\n\n");
+    
+    char line[BOARD_SIZE + 10];
+    
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        printf("Row %d: ", i + 1);
+        
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            fprintf(stderr, "Error reading input\n");
+            return 1;
+        }
+        
+        // Remove newline
+        int len = strlen(line);
+        if (len > 0 && line[len-1] == '\n') line[len-1] = '\0';
+        
+        // Validate and copy
+        if (!validate_board_line(line, i + 1)) {
+            i--; // Retry this line
+            continue;
+        }
+        
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            current_board[i][j] = line[j];
+        }
+    }
+    
+    printf("\nBoard loaded successfully!\n");
+    
+#ifdef HAS_LED_MATRIX
+    // Show team name animation
+    show_team_name_animation();
+#endif
+    
+    // Display on LED matrix
+    display_on_matrix();
+    
+    printf("\nPress Enter to exit...\n");
+    getchar();
+    
+    return 0;
+}
+
+// Main function - for standalone execution
+#ifdef STANDALONE_BUILD
+int main(int argc, char *argv[]) {
+    int ret = 0;
+    
+    // Signal handling
+    signal(SIGINT, sighandler);
+    signal(SIGTERM, sighandler);
+    
+    // Show startup message
+    fprintf(stderr, "=== OctaFlip LED Display v3.0 ===\n");
+    fprintf(stderr, "Team Shannon\n");
+    fprintf(stderr, "Initializing...\n\n");
+    
+    // Initialize LED display
+    if (init_led_display() != 0) {
+        fprintf(stderr, "Warning: LED matrix initialization failed\n");
+        fprintf(stderr, "Continuing with console display only\n");
+    } else {
+        fprintf(stderr, "LED matrix initialized successfully\n");
+    }
+    
+    // Show team name
+    show_team_name_on_led();
+    
+    // Initialize board
+    init_board_state();
+    
+    if (argc == 1) {
+        // Default: read from stdin (for grading) - Assignment 3 requirement
+        ret = run_board_standalone();
+    } else if (argc > 1) {
+        if (strcmp(argv[1], "-network") == 0) {
+            ret = run_board_network_server();
+        } else if (strcmp(argv[1], "-manual") == 0) {
+            ret = run_board_manual_input();
+        } else if (strcmp(argv[1], "-help") == 0) {
+            printf("Usage: %s [-network | -manual | -help]\n", argv[0]);
+            printf("  Default   : Read 8 lines from stdin (for grading)\n");
+            printf("  -manual   : Interactive input mode\n");
+            printf("  -network  : Network server mode (if enabled)\n");
+            printf("  -help     : Show this help message\n");
+            ret = 0;
+        } else {
+            fprintf(stderr, "Unknown option: %s\n", argv[1]);
+            fprintf(stderr, "Usage: %s [-network | -manual | -help]\n", argv[0]);
+            fprintf(stderr, "Default: read 8 lines from stdin\n");
+            ret = 1;
+        }
+    }
+    
+    // Cleanup
+    cleanup_led_display();
+    
+    fprintf(stderr, "\nProgram finished\n");
+    
+    return ret;
+}
+#endif

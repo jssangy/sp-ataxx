@@ -21,7 +21,6 @@
 #define BLOCKED '#'
 #define MAX_PLAYERS 2
 #define TIMEOUT_SECONDS 5  
-#define HUMAN_TIMEOUT_SECONDS 60  // 1 minute for human players
 #define BUFFER_SIZE 4096
 
 // Move types
@@ -34,7 +33,7 @@ typedef struct {
     int sockfd;
     char color;
     int connected;
-    int timeout_seconds;  // Per-player timeout
+    int is_human;  
 } Player;
 
 // Game state
@@ -54,13 +53,13 @@ typedef struct {
 GameState game;
 FILE* logFile = NULL;
 
-// Function prototypes
+// Function prototypes - FIXED: Added player_type parameter
 void initializeBoard();
 void initializeLog();
 void logBoardState(const char* event);
 void logMove(const char* player, int sx, int sy, int tx, int ty, const char* result);
 void sendJSON(int sockfd, cJSON* json);
-void handleRegister(int clientfd, const char* username, const char* mode);
+void handleRegister(int clientfd, const char* username, const char* player_type);
 void handleMove(int clientfd, const char* username, int sx, int sy, int tx, int ty);
 void broadcastGameStart();
 void sendYourTurn(int player_idx);
@@ -201,8 +200,9 @@ void sendJSON(int sockfd, cJSON* json) {
 }
 
 // Handle register request
-void handleRegister(int clientfd, const char* username, const char* mode) {
-    printf("Registration request from %s (fd=%d, mode=%s)\n", username, clientfd, mode ? mode : "ai");
+void handleRegister(int clientfd, const char* username, const char* player_type) {
+    printf("Registration request from %s (fd=%d, type=%s)\n", username, clientfd, 
+           player_type ? player_type : "ai");
     
     cJSON* response = cJSON_CreateObject();
     if (!response) return;
@@ -234,11 +234,11 @@ void handleRegister(int clientfd, const char* username, const char* mode) {
         game.players[game.num_players].color = (game.num_players == 0) ? RED : BLUE;
         game.players[game.num_players].connected = 1;
         
-        // Set timeout based on mode
-        if (mode && strcmp(mode, "human") == 0) {
-            game.players[game.num_players].timeout_seconds = HUMAN_TIMEOUT_SECONDS;
+        // Set human flag
+        if (player_type && strcmp(player_type, "human") == 0) {
+            game.players[game.num_players].is_human = 1;
         } else {
-            game.players[game.num_players].timeout_seconds = TIMEOUT_SECONDS;
+            game.players[game.num_players].is_human = 0;
         }
         
         game.num_players++;
@@ -247,16 +247,15 @@ void handleRegister(int clientfd, const char* username, const char* mode) {
         sendJSON(clientfd, response);
         cJSON_Delete(response);
         
-        printf("Player %s registered as %c (timeout: %ds, total: %d)\n", username, 
-               game.players[game.num_players-1].color, 
-               game.players[game.num_players-1].timeout_seconds, 
+        printf("Player %s registered as %c (%s) (total: %d)\n", username, 
+               game.players[game.num_players-1].color,
+               game.players[game.num_players-1].is_human ? "human" : "ai",
                game.num_players);
         
         if (logFile) {
-            fprintf(logFile, "Player %s registered as %c (mode: %s, timeout: %ds)\n", username, 
+            fprintf(logFile, "Player %s registered as %c (%s)\n", username, 
                     game.players[game.num_players-1].color,
-                    mode ? mode : "ai",
-                    game.players[game.num_players-1].timeout_seconds);
+                    game.players[game.num_players-1].is_human ? "human" : "ai");
             fflush(logFile);
         }
         
@@ -272,6 +271,7 @@ void handleRegister(int clientfd, const char* username, const char* mode) {
         }
     }
 }
+
 
 // Broadcast game start to both players
 void broadcastGameStart() {
@@ -319,7 +319,13 @@ void sendYourTurn(int player_idx) {
     
     cJSON_AddStringToObject(message, "type", "your_turn");
     cJSON_AddItemToObject(message, "board", board_json);
-    cJSON_AddNumberToObject(message, "timeout", game.players[player_idx].timeout_seconds);
+    
+    // Set timeout based on player type
+    if (game.players[player_idx].is_human) {
+        cJSON_AddNumberToObject(message, "timeout", 999999);  // Effectively no timeout
+    } else {
+        cJSON_AddNumberToObject(message, "timeout", TIMEOUT_SECONDS);
+    }
     
     if (game.players[player_idx].connected) {
         sendJSON(game.players[player_idx].sockfd, message);
@@ -328,6 +334,7 @@ void sendYourTurn(int player_idx) {
     
     cJSON_Delete(message);
 }
+
 
 // Get move type
 int getMoveType(int sx, int sy, int tx, int ty) {
@@ -721,6 +728,10 @@ void printBoard() {
 }
 
 int main(int argc, char *argv[]) {
+    // Suppress unused parameter warnings
+    (void)argc;
+    (void)argv;
+    
     struct addrinfo hints, *res;
     int sockfd, clientfd, status;
     char buffer[BUFFER_SIZE];
@@ -732,11 +743,6 @@ int main(int argc, char *argv[]) {
     memset(&game, 0, sizeof(game));
     initializeBoard();
     initializeLog();
-    
-    // Initialize player timeouts to default
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        game.players[i].timeout_seconds = TIMEOUT_SECONDS;
-    }
     
     // Set up socket
     memset(&hints, 0, sizeof hints);
@@ -799,11 +805,11 @@ int main(int argc, char *argv[]) {
         // Check for timeout
         if (game.game_started && !game.game_over) {
             time_t current_time = time(NULL);
-            int current_timeout = game.players[game.current_player].timeout_seconds;
             
-            if (current_time - game.last_move_time >= current_timeout) {
-                printf("Timeout for player %s (after %d seconds)\n", 
-                       game.players[game.current_player].username, current_timeout);
+            // Only check timeout for AI players
+            if (!game.players[game.current_player].is_human && 
+                current_time - game.last_move_time >= TIMEOUT_SECONDS) {
+                printf("Timeout for player %s\n", game.players[game.current_player].username);
                 
                 logMove(game.players[game.current_player].username, 0, 0, 0, 0, "Timeout - forced pass");
                 
@@ -874,10 +880,14 @@ int main(int argc, char *argv[]) {
                                     if (type && cJSON_IsString(type)) {
                                         if (strcmp(type->valuestring, "register") == 0) {
                                             cJSON* username = cJSON_GetObjectItem(json, "username");
-                                            cJSON* mode = cJSON_GetObjectItem(json, "mode");
+                                            cJSON* player_type = cJSON_GetObjectItem(json, "player_type");
+                                            
                                             if (username && cJSON_IsString(username)) {
-                                                const char* mode_str = (mode && cJSON_IsString(mode)) ? mode->valuestring : "ai";
-                                                handleRegister(i, username->valuestring, mode_str);
+                                                const char* type_str = NULL;
+                                                if (player_type && cJSON_IsString(player_type)) {
+                                                    type_str = player_type->valuestring;
+                                                }
+                                                handleRegister(i, username->valuestring, type_str);
                                             }
                                         } else if (strcmp(type->valuestring, "move") == 0) {
                                             cJSON* username = cJSON_GetObjectItem(json, "username");
@@ -916,7 +926,6 @@ int main(int argc, char *argv[]) {
         }
         
         // Exit if game is over and no players connected
-// Exit if game is over and no players connected
         if (game.game_over) {
             int connected = 0;
             for (int i = 0; i < MAX_PLAYERS; i++) {
@@ -930,7 +939,7 @@ int main(int argc, char *argv[]) {
                     fprintf(logFile, "\nGame completed successfully\n");
                     fflush(logFile);
                     closeLog();
-                }  // <- 이 중괄호가 여기 있어야 합니다
+                }
                 usleep(500000);  // 0.5초 대기
                 break;
             }

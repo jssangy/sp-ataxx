@@ -1,359 +1,342 @@
-Assignment 2: OctaFlip with Network
-===================================
+# Assignment 3: OctaFlip with LED Matrix Display
+**Team Shannon**
 
-Compilation Commands:
-====================
-gcc server.c cJSON.c -o server -lpthread
-gcc client.c cJSON.c -o client -lpthread -lm
+## Overview
+This project implements an OctaFlip game client with LED matrix display support and advanced AI engines. The system includes a game server, AI client with 6 different engines, 64x64 RGB LED matrix visualization, and a neural network training system.
 
-# Or using Makefile:
-make            # Build all
-make debug      # Debug build
-make clean      # Clean build files
-make test       # Run quick test match
-make quick-match # Run match between two AIs
-make install    # Install to ~/bin
-make help       # Show all commands
+## Compilation Instructions
 
-Execution:
-==========
-1. Run server: ./server
-2. Run client: ./client -ip {ip} -port {port} -username {username}
+### Quick Compilation
+```bash
+# Using Makefile (Recommended)
+make              # Build all components (server, client, board)
+make server       # Build only the server
+make client       # Build only the client with LED support
+make board        # Build standalone board display for testing
 
-Example:
-========
-# Terminal 1 - Start server
+# Manual Compilation
+gcc -O3 -pthread server.c cJSON.c -o server -lm
+gcc -O3 -pthread client.c board.c cJSON.c -o client -lm
+gcc -O3 -pthread -DSTANDALONE_BUILD board.c -o board -lm
+
+# With LED Matrix Library (Raspberry Pi) - Auto-detected by Makefile
+gcc -O3 -pthread -DSTANDALONE_BUILD -DHAS_LED_MATRIX board.c -o board -lm -lrgbmatrix -I/usr/local/include -L/usr/local/lib
+```
+
+### Check LED Matrix Installation
+```bash
+make check-led    # Check if LED matrix library is installed
+```
+
+## Execution Instructions
+
+### 1. Connect to Official Server (Assignment Requirement)
+```bash
+# Connect to the TA's server at DGIST
+./client -ip 10.8.128.233 -port 8080 -username TeamShannon
+
+# Select AI engine (1-6)
+./client -ip 10.8.128.233 -port 8080 -username TeamShannon -engine 6
+```
+
+### 2. Local Testing
+```bash
+# Terminal 1: Start local server
 ./server
 
-# Terminal 2 - Player 1
-./client -ip 127.0.0.1 -port 8080 -username Alice
+# Terminal 2: Run AI client
+./client -ip 127.0.0.1 -port 8080 -username TeamShannon
 
-# Terminal 3 - Player 2  
-./client -ip 127.0.0.1 -port 8080 -username Bob
+```
 
-Additional Options:
-==================
--engine {1-20}  : Select AI engine (default: 13 - Ultimate AI )
--human         : Human play mode (disable AI)
-
-AI Engines:
-
-DefaultEngine: Ultimate AI
-./client -ip 127.0.0.1 -port 8080 -username DefaultEngine
-
-===========
-1. Hybrid Alpha-Beta      - Enhanced minimax with optimizations
-   ./client -ip 127.0.0.1 -port 8080 -username AlphaBetaAI -engine 1
-
-2. Parallel MCTS         - Monte Carlo Tree Search with threading
-   ./client -ip 127.0.0.1 -port 8080 -username ParallelMCTS -engine 2
-
-3. Neural Pattern        - Pattern recognition based
-   ./client -ip 127.0.0.1 -port 8080 -username NeuralPattern -engine 3
-
-4. Opening Book          - Pre-computed opening moves
-   ./client -ip 127.0.0.1 -port 8080 -username OpeningBook -engine 4
-
-5. Endgame Solver        - Perfect endgame play
-   ./client -ip 127.0.0.1 -port 8080 -username EndgameSolver -engine 5
-
-6. Tournament Beast      - Combination of various Strategy
-   ./client -ip 127.0.0.1 -port 8080 -username TournamentBeast -engine 6
-
-7. Adaptive Time         - Time management specialist
-   ./client -ip 127.0.0.1 -port 8080 -username AdaptiveTime -engine 7
-
-8. Learning Engine       - Self-improving engine
-   ./client -ip 127.0.0.1 -port 8080 -username LearningEngine -engine 8
-
-9. Human Style           - Human-like moves
-   ./client -ip 127.0.0.1 -port 8080 -username HumanStyle -engine 9
-
-10. Random Good          - Smart randomness
-    ./client -ip 127.0.0.1 -port 8080 -username RandomGood -engine 10
-
-11. NNUE Beast           - Pure NNUE evaluation
-    ./client -ip 127.0.0.1 -port 8080 -username NNUEBeast -engine 11
-
-12. Opening Master       - Opening book + NNUE
-    ./client -ip 127.0.0.1 -port 8080 -username OpeningMaster -engine 12
-
-13. Ultimate AI          - Best combination of all strategies (default)
-    ./client -ip 127.0.0.1 -port 8080 -username UltimateAI
-    ./client -ip 127.0.0.1 -port 8080 -username UltimateAI -engine 13
-
-14. Hybrid MCTS          - MCTS with NNUE evaluation
-    ./client -ip 127.0.0.1 -port 8080 -username HybridMCTS -engine 14
-
-15. Tactical Genius      - Focus on tactical combinations
-    ./client -ip 127.0.0.1 -port 8080 -username TacticalGenius -engine 15
-
-16. Strategic Master     - Long-term strategic planning
-    ./client -ip 127.0.0.1 -port 8080 -username StrategicMaster -engine 16
-
-17. Endgame God          - Perfect endgame calculation
-    ./client -ip 127.0.0.1 -port 8080 -username EndgameGod -engine 17
-
-18. Blitz King           - Ultra-fast decision making
-    ./client -ip 127.0.0.1 -port 8080 -username BlitzKing -engine 18
-
-19. Fortress             - Defensive specialist
-    ./client -ip 127.0.0.1 -port 8080 -username Fortress -engine 19
-
-20. Assassin             - Aggressive attacker
-    ./client -ip 127.0.0.1 -port 8080 -username Assassin -engine 20
-
-Human Mode              - Manual play (disable AI)
-    ./client -ip 127.0.0.1 -port 8080 -username Player1 -human
-
-AI Implementation Details:
-=========================
-
-## 1. Hybrid Alpha-Beta (ENGINE_HYBRID_ALPHABETA)
-- **Algorithm**: Enhanced minimax with alpha-beta pruning
-- **Features**:
-  - Iterative deepening with aspiration windows
-  - Transposition table (22-bit hash, 4-way bucket)
-  - Killer move heuristic (2 killers per depth)
-  - History heuristic with butterfly table
-  - Late Move Reduction (LMR)
-  - Null move pruning (R=2-3)
-  - Principal Variation Search (PVS)
-  - Futility pruning in low depths
-- **Depth**: 4-10 plies based on time and position complexity
-- **Time Management**: 80-85% of allocated time
-
-## 2. Parallel MCTS (ENGINE_PARALLEL_MCTS)
-- **Algorithm**: Monte Carlo Tree Search with Lazy SMP
-- **Features**:
-  - UCT with exploration constant C=√2
-  - RAVE (Rapid Action Value Estimation)
-  - Virtual loss for parallel efficiency
-  - Progressive bias with heuristic evaluation
-  - Node pool allocation (100,000 nodes)
-  - AMAF (All Moves As First) statistics
-- **Threads**: 4 worker threads
-- **Simulations**: Target 100,000+ iterations
-
-## 3. Neural Pattern (ENGINE_NEURAL_PATTERN)
-- **Algorithm**: Pattern matching with learned weights
-- **Features**:
-  - 3x3 pattern recognition
-  - Dynamic pattern learning during play
-  - Position-based evaluation
-  - Capture detection bonus
-  - Mobility consideration
-- **Pattern Database**: Up to 1000 patterns
-
-## 4. Opening Book (ENGINE_OPENING_BOOK)
-- **Algorithm**: Pre-computed opening sequences
-- **Features**:
-  - Hash-based position lookup
-  - Move scoring based on win statistics
-  - Center control emphasis
-  - Capture prioritization
-  - Clone vs Jump preference in early game
-- **Depth**: First 20 moves
-
-## 5. Endgame Solver (ENGINE_ENDGAME_SOLVER)
-- **Algorithm**: Deep search with perfect play
-- **Features**:
-  - Variable depth based on empty squares
-  - Repetition avoidance
-  - Emergency time handling
-  - Perfect play with ≤8 empty squares
-- **Depth**: 4-8 plies (up to 12 with few pieces)
-
-## 6. Tournament Beast (ENGINE_TOURNAMENT_BEAST)
-- **Algorithm**: Opening specialist with NNUE verification
-- **Features**:
-  - Opening book integration
-  - NNUE evaluation for move verification
-  - Deep 3-ply lookahead for critical positions
-  - Combined traditional and neural evaluation
-  - Top-5 candidate move analysis
-- **Transition**: Switches to alpha-beta after move 15
-
-## 7-12. [Other engines with specialized strategies]
-
-## 13. Ultimate AI (ENGINE_ULTIMATE_AI) - DEFAULT
-- **Algorithm**: Phase-based engine selection
-- **Opening (0-19 pieces)**:
-  - Tournament Beast with enhanced NNUE guidance
-  - Double-check critical moves with deeper NNUE
-  - Worst-case analysis for very early game
-- **Midgame (28-50 pieces)**:
-  - Extended Hybrid MCTS as primary engine
-  - Time allocation based on position complexity
-  - NNUE verification for late midgame
-  - Tournament Beast fallback on MCTS failure
-- **Endgame (51+ pieces)**:
-  - Pure Endgame God for ≤3 empty squares
-  - MCTS for close material balance
-  - Comparison between MCTS and Endgame God choices
-  - Final NNUE sanity check for critical moves
-- **Safety Features**:
-  - Timeout protection
-  - Move validation
-  - Engine fallback mechanisms
-
-## 14. Hybrid MCTS (ENGINE_HYBRID_MCTS)
-- **Algorithm**: MCTS with neural network guidance
-- **Features**:
-  - NNUE evaluation in tree policy
-  - Reduced simulation count
-  - Smart node expansion
-  - Conservative time allocation (70-80%)
-  - Single-threaded warmup phase
-- **Minimum Requirements**: 5+ valid moves, 0.5s+ time
-
-## 17. Endgame God (ENGINE_ENDGAME_GOD)
-- **Algorithm**: Perfect endgame solver
-- **Features**:
-  - Handles single empty square perfectly
-  - Iterative deepening with time control
-  - Aspiration windows for efficiency
-  - Depth based on empty squares (4-12 plies)
-  - Enhanced time allocation (+10-20%)
-- **Specialization**: Optimal for <15 empty squares
-
-NNUE Integration:
-================
-- **Network Structure**: 192-64-32-1 (compact design)
-- **Input Encoding**: 3 planes (Red, Blue, Empty)
-- **Weights**: Quantized to int16 for efficiency
-- **Scale Factor**: 127 for weight quantization
-- **Output Range**: [-10000, 10000] centipawns
-- **Integration Points**:
-  - Direct evaluation in NNUE Beast
-  - Move verification in Tournament Beast
-  - Hybrid evaluation in Ultimate AI
-  - Tree policy guidance in Hybrid MCTS
-
-Execution Examples:
-==================
-# Default AI (Ultimate AI )
-./client -ip 127.0.0.1 -port 8080 -username DefaultAI
-
-# Train NNUE weights
-python3 train_octoflip.py
-
-Human Mode Controls:
-===================
-- Move format: sx sy tx ty (1-indexed, e.g., "1 1 2 2")
-- Pass turn: 0 0 0 0
-- Quit game: type "quit" or "exit"
-
-Move Generation:
-===============
-The client implements automatic move generation through the getAIMove() 
-function that analyzes the current board state and returns optimal moves 
-within the 5-second timeout. Time allocation varies by game phase:
-- Opening: 80% of time limit
-- Midgame: 85% of time limit  
-- Endgame: 70-80% of time limit
-- Emergency buffer: 0.3 seconds reserved
-
-Network Protocol:
-================
-- TCP sockets with JSON payloads
-- Messages delimited with '\n'
-- Supports register, move, game_start, your_turn, game_over messages
-- Partial message handling with buffering
-
-Implementation Features:
-=======================
-- Automatic move generation with 20 AI algorithms
-- Multi-threaded support (up to 8 threads)
-- Transposition tables (4MB default)
-- Time management system
-- Human vs AI support
-- Server-side game logging
-- Pass move handling
-- Memory-safe implementation
-- NNUE neural network evaluation
-- Opening book database
-- Move repetition detection
-- Contempt factor support
-
-Advanced Features:
-=================
-- **Memory Management**: 
-  - Node pool allocation for MCTS
-  - Transposition table with age-based replacement
-  - History table compression
-- **Search Enhancements**:
-  - Killer moves (2 per ply)
-  - History heuristic with overflow handling
-  - Butterfly table for move ordering
-  - Late move reduction (depth/move based)
-- **NNUE Features**:
-  - Incremental updates (future enhancement)
-  - King-relative encoding (future enhancement)
-  - Efficiently updatable evaluation
-- **Time Control**:
-  - Iterative deepening with early termination
-  - Soft/hard time limits
-  - Branching factor estimation
-  - Emergency move generation
-
-Files Included:
-==============
-- server.c                  : Game server implementation
-- client.c                  : Client with 20 AI engines
-- cJSON.c/h                : JSON parsing library
-- nnue_weights_generated.h  : Pre-trained NNUE weights (auto-generated)
-- opening_book_data.h      : Opening book database (auto-generated)
-- train_octoflip.py        : NNUE training system v4.0
-- training_stats.json      : NNUE training statistics
-- read_pickle_weights.py   : Legacy NNUE training system v2.2
-- Makefile                : Build automation (macOS/Linux compatible)
-- readme.txt              : This file
-
-NNUE Training System:
-====================
-The train_octoflip.py implements a complete NNUE training pipeline:
-
-## Features:
-- **Architecture**: 192-64-32-1 compact NNUE
-- **Training Algorithm**: Self-play with evolutionary approach
-- **Population**: 6 networks competing per generation
-- **Loss Function**: Huber loss for outlier robustness
-- **Optimizer**: Adam with aggressive gradient clipping
-- **Regularization**: L2 weight decay + dropout simulation
-
-## Training Process:
-1. **Self-play tournament**: Networks compete against each other
-2. **Diverse opponents**: Games vs Random, Greedy, Positional AIs
-3. **Data collection**: Positions from games with temporal difference values
-4. **Network training**: Best performers train on collected data
-5. **Evolution**: Top networks survive, others mutate from parents
-6. **Validation**: Regular testing against baseline AIs
-
-## Usage:
+### 3. LED Display Testing (For Grading)
 ```bash
-# Quick training (1 hour)
-python3 train_octoflip.py
+# Standalone board display - reads 8 lines from stdin
+sudo ./board < test_input.txt
+
+# Or manually:
+sudo ./board
+R......B
+........
+........
+........
+........
+........
+........
+B......R
+
+# Test with sample board
+make test-board
+
+# Test LED patterns
+make test-led
+```
+
+## AI Engines
+
+### 1. Eunsong Engine (ENGINE_EUNSONG)
+```bash
+./client -ip 10.8.128.233 -port 8080 -username Eunsong_Engine -engine 1
+./client -ip 127.0.0.1 -port 8080 -username Eunsong_Engine -engine 1
+
+```
+- **Algorithm**: Parallel Negamax with Alpha-Beta pruning
+- **Features**: 
+  - Multi-threaded search (4 threads)
+  - History heuristic
+  - Killer moves
+  - Dynamic depth (4-6 plies)
+- **Strengths**: Fast and reliable baseline
+
+### 2. MCTS with Neural Network (ENGINE_MCTS_NN)
+```bash
+./client -ip 10.8.128.233 -port 8080 -username MCTS_NN -engine 2
+./client -ip 127.0.0.1 -port 8080 -username MCTS_NN -engine 2
+```
+- **Algorithm**: Monte Carlo Tree Search with NNUE evaluation
+- **Features**:
+  - Deep neural network evaluation (4-layer, 192-128-64-32-1)
+  - UCB1 selection with exploration constant 1.41
+  - Parallel simulation (4 threads)
+  - Limited expansion for memory efficiency
+- **Strengths**: Strong positional understanding
+
+### 3. MCTS Classic (ENGINE_MCTS_CLASSIC)
+```bash
+./client -ip 10.8.128.233 -port 8080 -username MCTS_Classic -engine 3
+./client -ip 127.0.0.1 -port 8080 -username MCTS_Classic -engine 3
+
+```
+- **Algorithm**: Pure Monte Carlo Tree Search
+- **Features**:
+  - Capture-biased playouts
+  - Fast simulation (30 moves max)
+  - Progressive widening
+  - Robust move selection
+- **Strengths**: Good in tactical positions
+
+### 4. Minimax with Neural Network (ENGINE_MINIMAX_NN)  
+```bash
+./client -ip 10.8.128.233 -port 8080 -username Minimax_NN -engine 4
+./client -ip 127.0.0.1 -port 8080 -username Minimax_NN -engine 4
+
+```
+- **Algorithm**: Alpha-Beta with NNUE evaluation
+- **Features**:
+  - Blended evaluation (NNUE + classical)
+  - Phase-dependent weights
+  - Transposition table (256K entries)
+  - Iterative deepening to depth 7
+- **Strengths**: Excellent endgame play
+
+### 5. Minimax Classic (ENGINE_MINIMAX_CLASSIC) 
+```bash
+./client -ip 10.8.128.233 -port 8080 -username Minimax_Classic -engine 5
+./client -ip 127.0.0.1 -port 8080 -username Minimax_Classic -engine 5
+```
+- **Algorithm**: Pure Alpha-Beta search
+- **Features**:
+  - Phase-specific position weights
+  - Killer moves and history heuristic
+  - Move ordering with capture bonus
+  - Adaptive time management
+- **Strengths**: Reliable and predictable
+
+### 6. Tournament Beast (ENGINE_TOURNAMENT_BEAST) [Default]
+```bash
+./client -ip 10.8.128.233 -port 8080 -username Tournament_Beast -engine 6
+./client -ip 127.0.0.1 -port 8080 -username Tournament_Beast -engine 6
+```
+- **Algorithm**: Phase-adaptive hybrid engine
+- **Features**:
+  - Opening (< 38 pieces): Minimax blend (80% NN, 20% Classic)
+  - Midgame (38-43 pieces): MCTS blend (80% NN, 20% Classic)
+  - Early Endgame (43-50 pieces): MCTS blend (60% NN, 40% Classic)
+  - Late Endgame (58-64 pieces): Minimax blend (30% NN, 70% Classic)
+- **Strengths**: Best overall performance, adapts to game phase
+
+## LED Matrix Display
+
+### Features
+- 64x64 RGB LED matrix support
+- Real-time board state visualization
+- Team name animation on startup
+- Victory/defeat animations
+- Grid-based layout with 8x8 cells
+
+### Display Mapping
+- Each OctaFlip cell → 8x8 LED pixels
+- 1-pixel grid lines between cells
+- 6x6 colored area for pieces
+- Colors:
+  - Red pieces: RGB(255, 30, 30)
+  - Blue pieces: RGB(30, 120, 255)
+  - Grid lines: RGB(80, 80, 80)
+  - Empty cells: Black
+
+### Testing LED Display
+```bash
+# Test with sample board
+make test-board
+
+# Manual input mode
+sudo ./board -manual
+
+# Network mode (if enabled)
+./board -network
+
+# Check LED installation
+make check-led
+```
+
+## Advanced Features
+
+### NNUE Neural Network
+- **Architecture**: 192-128-64-32-1 (4-layer deep network with batch normalization)
+- **Input**: 3 planes × 64 squares = 192 features
+- **Weights**: Quantized to int16 for efficiency
+- **Training**: 30+ hours of self-play with Leaky ReLU activation
+- **Integration**: Used in engines 2, 4, and 6
+- **Output**: Scaled evaluation in range [-200, 200]
+
+### Game Phase Detection
+- **Opening**: < 20 total pieces (focus on center control)
+- **Midgame**: 20-50 pieces (balanced play)
+- **Early Endgame**: 50-58 pieces (consolidation)
+- **Late Endgame**: 58-64 pieces (corner control critical)
+
+### Time Management
+- **Base**: 3.0 seconds per move
+- **Opening**: 70% of time limit
+- **Midgame**: 80% of time limit
+- **Early Endgame**: 85% of time limit
+- **Late Endgame**: 90% of time limit
+- **Safety margin**: Always keeps 0.1s buffer
+
+## Tournament System
+
+### Running Tournaments
+```bash
+# Full double round-robin
+python3 tournament.py
 # Select option 1
 
-# Standard training (10 hours) - Recommended
-python3 train_octoflip.py
-# Select option 2
+# Quick match between two engines
+python3 tournament.py
+# Select option 2, then choose engines
+```
 
-# Extended training (24 hours) - Best quality
+### Features
+- Automated game execution
+- Win/loss/draw statistics
+- Performance comparison
+- Log file generation
+
+## NNUE Training
+
+### Training New Weights
+```bash
+# Standard 30-hour training
 python3 train_octoflip.py
 # Select option 3
 
+# Quick 1-hour test
+python3 train_octoflip.py
+# Select option 1
+
 # Test existing weights
 python3 train_octoflip.py
-# Select option 5
+# Select option 4
+```
 
+### Training Features
+- Deep NNUE with Leaky ReLU activation
+- Population-based training (12 networks)
+- Self-play against multiple AI types
+- Adaptive exploration rate
+- Automatic C header generation (nnue_weights_generated.h)
 
-# Board compile
-cd rpi-rgb-led-matrix
-make
-cd ..
-g++ -o board board.c -I./rpi-rgb-led-matrix/include -L./rpi-rgb-led-matrix/lib -lrgbmatrix -lm -lpthread
+## Technical Implementation
 
-# Board Execution
-sudo ./board --no-hardware-pulse
+### Core Algorithms
+
+#### 1. Move Generation
+- Validates all clone (1-step) and jump (2-step) moves
+- Phase-specific move ordering
+- Capture detection and prioritization
+- Handles pass moves when no valid moves exist
+
+#### 2. Board Evaluation
+- Material count (phase-dependent: 80-150 points per piece)
+- Position weights (3 different tables for game phases)
+- NNUE evaluation blend (when available)
+- Mobility bonus (2 points per available move)
+
+#### 3. Time Management
+- 3-second hard limit per move
+- Phase-based allocation (70-90% of limit)
+- Iterative deepening with time checks
+- Emergency move at 85% time usage
+
+#### 4. Memory Optimization
+- Hash table: 256K entries (RPi optimized)
+- Transposition table with 3-flag system
+- Killer moves: 2 per depth level
+- History table for move ordering
+
+### Network Protocol
+- TCP sockets with JSON messages
+- Newline-delimited message framing
+- Supports all Assignment 2 message types
+- Robust partial message handling
+
+## File Structure
+```
+hw4_전용준_202311162_Shannon/
+├── client.c                    # AI client with 6 engines
+├── board.c                     # LED matrix display
+├── board.h                     # Display interface
+├── server.c                    # Game server (reference)
+├── cJSON.c/h                   # JSON parsing library
+├── nnue_weights_generated.h    # Pre-trained NNUE weights
+├── train_octoflip.py          # NNUE training system v7.0
+├── tournament.py              # Tournament runner
+├── Makefile                   # Build automation
+└── README.txt                 # This file
+```
+
+## Troubleshooting
+
+### Common Issues
+1. **LED Matrix not working**: Ensure you have rgbmatrix library installed
+2. **Connection timeout**: Check if you're on DGIST WiFi
+3. **Compilation errors**: Install pthread and math libraries
+4. **Python errors**: Requires Python 3.6+ with numpy
+
+### Debug Mode
+```bash
+# Build with debug symbols
+make debug
+
+# Enable debug output
+./client -username Debug -engine 1
+```
+
+## Performance Notes
+- Optimized for Raspberry Pi 4
+- Uses -O3 optimization
+- Multi-threaded search (4 threads max)
+- Memory usage under 50MB
+- CPU usage varies by engine (20-80%)
+
+## Credits
+**Team Shannon**
+- Advanced AI implementation
+- LED visualization system  
+- NNUE neural network
+- Complete system integration
+
+---
+*Assignment 3 - DGIST System Programming course*
+
+g++ -o board board.c -DSTANDALONE_BUILD -DHAS_LED_MATRIX -I./rpi-rgb-led-matrix/include -L./rpi-rgb-led-matrix/lib -lrgbmatrix -lrt -lm -lpthread
