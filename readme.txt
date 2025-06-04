@@ -2,7 +2,6 @@
 cd rpi-rgb-led-matrix
 make
 cd ..
-g++ -o board board.c -DSTANDALONE_BUILD -DHAS_LED_MATRIX -I./rpi-rgb-led-matrix/include -L./rpi-rgb-led-matrix/lib -lrgbmatrix -lrt -lm -lpthread
 make
 
 2. 실행 방법 (board)
