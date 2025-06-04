@@ -33,8 +33,11 @@ client: client.c board.c cJSON.c board.h cJSON.h
 
 # Board (standalone for LED testing)
 board: board.c board.h
-$(CXX) -o board board.c -DSTANDALONE_BUILD -DHAS_LED_MATRIX -I$(LED_MATRIX_PATH) -L$(LED_MATRIX_LIB_PATH) -lrgbmatrix -lrt -lm -lpthread
-
+ifeq ($(LED_EXISTS),yes)
+	$(CXX) -o board board.c -DSTANDALONE_BUILD -DHAS_LED_MATRIX -I$(LED_MATRIX_PATH) -L$(LED_MATRIX_LIB_PATH) -lrgbmatrix -lrt -lm -lpthread
+else
+	$(CC) $(CFLAGS) -DSTANDALONE_BUILD board.c -o board $(LDFLAGS)
+endif
 
 # Clean
 clean:
