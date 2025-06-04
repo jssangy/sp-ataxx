@@ -82,9 +82,9 @@
 #define ASPIRATION_WINDOW 50
 
 // ===== PHASE CONSTANTS =====
-#define PHASE_OPENING_END 64
-#define PHASE_MIDGAME_END 64
-#define PHASE_ENDGAME_START 64
+#define PHASE_OPENING_END 44
+#define PHASE_MIDGAME_END 50
+#define PHASE_ENDGAME_START 54
 
 // ===== DEFAULT SERVER =====
 #define DEFAULT_SERVER_IP "10.8.128.233"
@@ -912,13 +912,13 @@ double evaluateHybrid(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer, GamePha
             nnWeight = 0.8;  // 80% NNUE, 20% Classic
             break;
         case PHASE_MIDGAME:
-            nnWeight = 0.8;  // 80% NNUE, 20% Classic
+            nnWeight = 0.9;  // 80% NNUE, 20% Classic
             break;
         case PHASE_ENDGAME_EARLY:
-            nnWeight = 0.6;  // 50% NNUE, 50% Classic
+            nnWeight = 0.8;  // 50% NNUE, 50% Classic
             break;
         case PHASE_ENDGAME_LATE:
-            nnWeight = 0.3;  // 30% NNUE, 70% Classic (endgame heuristics more reliable)
+            nnWeight = 0.4;  // 30% NNUE, 70% Classic (endgame heuristics more reliable)
             break;
     }
     
