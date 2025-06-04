@@ -1,5 +1,3 @@
-// board.c - OctaFlip LED Display Implementation (Hardware Fixed)
-// Team Shannon - Assignment 3
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -111,6 +109,20 @@ static const uint8_t font5x7[26][7] = {
     {0x11, 0x11, 0x0E, 0x04, 0x04, 0x00, 0x00}, // Y
     {0x1F, 0x02, 0x04, 0x08, 0x1F, 0x00, 0x00}  // Z
 };
+
+// 5x7 숫자 폰트 (0-9) 추가
+static const uint8_t font5x7_numbers[10][7] = {
+    {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E}, // 0
+    {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E}, // 1
+    {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F}, // 2
+    {0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E}, // 3
+    {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02}, // 4
+    {0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E}, // 5
+    {0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E}, // 6
+    {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08}, // 7
+    {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E}, // 8
+    {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C}  // 9
+};
 #endif
 
 // Internal function prototypes
@@ -121,6 +133,8 @@ static void console_print_game_over(int red_score, int blue_score);
 
 #ifdef HAS_LED_MATRIX
 static void draw_text_manual(const char* text, int start_x, int start_y, int r, int g, int b);
+static void draw_char(char ch, int x, int y, int r, int g, int b);
+static void draw_score(int score, int x, int y, int r, int g, int b);
 static void draw_small_star(int cx, int cy, int r, int g, int b);
 static void draw_big_star(int cx, int cy, int r, int g, int b);
 static void show_team_name_animation(void);
@@ -175,19 +189,19 @@ static void console_print_game_over(int red_score, int blue_score) {
     printf("  ║                     🏁 GAME OVER! 🏁                      ║\n");
     printf("  ╠═══════════════════════════════════════════════════════════╣\n");
     printf("  ║                                                           ║\n");
-    printf("  ║     Red Player  🔴 : %3d pieces                          ║\n", red_score);
-    printf("  ║     Blue Player 🔵 : %3d pieces                          ║\n", blue_score);
+    printf("  ║     Red Player   : %3d pieces                             ║\n", red_score);
+    printf("  ║     Blue Player  : %3d pieces                             ║\n", blue_score);
     printf("  ║                                                           ║\n");
     
     if (red_score > blue_score) {
         printf("  ║              🎉 RED PLAYER WINS! 🎉                      ║\n");
-        printf("  ║                    🔴🔴🔴🔴🔴                           ║\n");
+        printf("  ║                                                           ║\n");
     } else if (blue_score > red_score) {
         printf("  ║              🎉 BLUE PLAYER WINS! 🎉                     ║\n");
-        printf("  ║                    🔵🔵🔵🔵🔵                           ║\n");
+        printf("  ║                                                           ║\n");
     } else {
         printf("  ║                  🤝 IT'S A DRAW! 🤝                      ║\n");
-        printf("  ║                    🔴🤝🔵                               ║\n");
+        printf("  ║                                                           ║\n");
     }
     
     printf("  ║                                                           ║\n");
@@ -205,30 +219,67 @@ static void swap_canvas(void) {
     }
 }
 
-// LED 매트릭스에 글자 그리기 (manual)
+// 단일 문자 그리기 (글자/숫자)
+static void draw_char(char ch, int x, int y, int r, int g, int b) {
+    if (!offscreen_canvas) return;
+    
+    const uint8_t* font_data = NULL;
+    
+    if (ch >= 'A' && ch <= 'Z') {
+        font_data = font5x7[ch - 'A'];
+    } else if (ch >= '0' && ch <= '9') {
+        font_data = font5x7_numbers[ch - '0'];
+    } else if (ch == ' ') {
+        return; // 공백은 그리지 않음
+    } else {
+        return; // 지원하지 않는 문자
+    }
+    
+    if (font_data) {
+        for (int row = 0; row < 7; row++) {
+            uint8_t row_data = font_data[row];
+            for (int col = 0; col < 5; col++) {
+                if (row_data & (1 << (4 - col))) {
+                    int px = x + col;
+                    int py = y + row;
+                    if (px >= 0 && px < MATRIX_SIZE && py >= 0 && py < MATRIX_SIZE) {
+                        led_canvas_set_pixel(offscreen_canvas, px, py, r, g, b);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// LED 매트릭스에 글자 그리기 (개선된 버전)
 static void draw_text_manual(const char* text, int start_x, int start_y, int r, int g, int b) {
     if (!offscreen_canvas) return;
     
     const int char_width = 5;
     const int spacing = 1;
-
+    int x_offset = start_x;
+    
     for (int i = 0; text[i] != '\0'; i++) {
-        char ch = text[i];
-        if (ch == ' ') {
-            continue;
-        }
-        if (ch >= 'A' && ch <= 'Z') {
-            int index = ch - 'A';
-            int x_offset = start_x + i * (char_width + spacing);
-            for (int y = 0; y < 7; y++) {
-                uint8_t row = font5x7[index][y];
-                for (int x = 0; x < char_width; x++) {
-                    if (row & (1 << (4 - x))) {
-                        led_canvas_set_pixel(offscreen_canvas, x_offset + x, start_y + y, r, g, b);
-                    }
-                }
-            }
-        }
+        draw_char(text[i], x_offset, start_y, r, g, b);
+        x_offset += char_width + spacing;
+    }
+}
+
+// 점수 표시 (두 자리 숫자)
+static void draw_score(int score, int x, int y, int r, int g, int b) {
+    if (!offscreen_canvas) return;
+    
+    if (score >= 100) score = 99; // 최대 99까지만 표시
+    
+    if (score >= 10) {
+        // 두 자리 수
+        int tens = score / 10;
+        int ones = score % 10;
+        draw_char('0' + tens, x, y, r, g, b);
+        draw_char('0' + ones, x + 6, y, r, g, b);
+    } else {
+        // 한 자리 수
+        draw_char('0' + score, x + 3, y, r, g, b); // 중앙 정렬
     }
 }
 
@@ -628,23 +679,19 @@ void show_game_over_animation(int red_score, int blue_score) {
     
     // Determine winner color
     int winner_r, winner_g, winner_b;
-    const char* winner_text;
     
     if (red_score > blue_score) {
         winner_r = COLOR_RED_R;
         winner_g = COLOR_RED_G;
         winner_b = COLOR_RED_B;
-        winner_text = "RED WINS";
     } else if (blue_score > red_score) {
         winner_r = COLOR_BLUE_R;
         winner_g = COLOR_BLUE_G;
         winner_b = COLOR_BLUE_B;
-        winner_text = "BLUE WINS";
     } else {
         winner_r = 150;
         winner_g = 150;
         winner_b = 150;
-        winner_text = "DRAW";
     }
     
     // Victory animation
@@ -661,17 +708,37 @@ void show_game_over_animation(int red_score, int blue_score) {
         }
     }
     
-    // Winner text
-    int text_x = (MATRIX_SIZE - strlen(winner_text) * 6) / 2;
-    draw_text_manual(winner_text, text_x, 20, 255, 255, 255);
+    // Winner text - 두 줄로 표시
+    if (red_score > blue_score) {
+        draw_text_manual("RED", 22, 10, 255, 255, 255);
+        draw_text_manual("WINS", 20, 20, 255, 255, 255);
+    } else if (blue_score > red_score) {
+        draw_text_manual("BLUE", 19, 10, 255, 255, 255);
+        draw_text_manual("WINS", 20, 20, 255, 255, 255);
+    } else {
+        draw_text_manual("DRAW", 20, 15, 255, 255, 255);
+    }
     
-    // Score display
-    char score_text[32];
-    sprintf(score_text, "R %d B %d", red_score, blue_score);
-    draw_text_manual(score_text, 10, 35, 255, 255, 255);
+    // Red score (왼쪽)
+    draw_text_manual("R", 10, 35, COLOR_RED_R, COLOR_RED_G, COLOR_RED_B);
+    draw_score(red_score, 20, 35, 255, 255, 255);
+    
+    // Blue score (오른쪽) 
+    draw_text_manual("B", 38, 35, COLOR_BLUE_R, COLOR_BLUE_G, COLOR_BLUE_B);
+    draw_score(blue_score, 48, 35, 255, 255, 255);
+    
+    // Frame border
+    for (int x = 0; x < MATRIX_SIZE; x++) {
+        led_canvas_set_pixel(offscreen_canvas, x, 0, 255, 255, 255);
+        led_canvas_set_pixel(offscreen_canvas, x, MATRIX_SIZE-1, 255, 255, 255);
+    }
+    for (int y = 0; y < MATRIX_SIZE; y++) {
+        led_canvas_set_pixel(offscreen_canvas, 0, y, 255, 255, 255);
+        led_canvas_set_pixel(offscreen_canvas, MATRIX_SIZE-1, y, 255, 255, 255);
+    }
     
     swap_canvas();
-    sleep(3);
+    sleep(5);  // 5초간 표시
 #else
     console_print_game_over(red_score, blue_score);
 #endif
