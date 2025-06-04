@@ -29,7 +29,7 @@ server: server.c cJSON.c cJSON.h
 client: client.c board.c cJSON.c board.h cJSON.h
 	$(CXX) $(CFLAGS) client.c board.c cJSON.c -o client -DHAS_LED_MATRIX \
 		-I$(LED_MATRIX_PATH) -L$(LED_MATRIX_LIB_PATH) \
-		-lrgbmatrix -lrt -lm -lpthread $(LDFLAGS)
+		-lrgbmatrix -lrt -lm -lpthread $(LDFLAGS) -std=c++11
 
 # Board (standalone for LED testing)
 board: board.c board.h
