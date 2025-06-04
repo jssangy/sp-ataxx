@@ -909,16 +909,16 @@ double evaluateHybrid(char board[BOARD_SIZE][BOARD_SIZE], int forPlayer, GamePha
     double nnWeight;
     switch (phase) {
         case PHASE_OPENING:
-            nnWeight = 1.0;  // 80% NNUE, 20% Classic
+            nnWeight = 0.8;  // 80% NNUE, 20% Classic
             break;
         case PHASE_MIDGAME:
-            nnWeight = 1.0;  // 80% NNUE, 20% Classic
+            nnWeight = 0.9;  // 80% NNUE, 20% Classic
             break;
         case PHASE_ENDGAME_EARLY:
-            nnWeight = 1.0;  // 50% NNUE, 50% Classic
+            nnWeight = 0.8;  // 50% NNUE, 50% Classic
             break;
         case PHASE_ENDGAME_LATE:
-            nnWeight = 1.0;  // 30% NNUE, 70% Classic (endgame heuristics more reliable)
+            nnWeight = 0.4;  // 30% NNUE, 70% Classic (endgame heuristics more reliable)
             break;
     }
     
