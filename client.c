@@ -18,7 +18,6 @@
 #include <arpa/inet.h>
 #include "cJSON.h"
 #include "board.h"
-#include <stdatomic.h>
 
 // Platform compatibility
 #ifdef _WIN32
