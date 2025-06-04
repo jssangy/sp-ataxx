@@ -27,15 +27,14 @@ server: server.c cJSON.c cJSON.h
 
 # Client  
 client: client.c board.c cJSON.c board.h cJSON.h
-	$(CC) $(CFLAGS) client.c board.c cJSON.c -o client $(LDFLAGS)
+	$(CXX) $(CFLAGS) client.c board.c cJSON.c -o client -DHAS_LED_MATRIX \
+		-I$(LED_MATRIX_PATH) -L$(LED_MATRIX_LIB_PATH) \
+		-lrgbmatrix -lrt -lm -lpthread $(LDFLAGS)
 
 # Board (standalone for LED testing)
 board: board.c board.h
-ifeq ($(LED_EXISTS),yes)
-	$(CXX) -o board board.c -DSTANDALONE_BUILD -DHAS_LED_MATRIX -I$(LED_MATRIX_PATH) -L$(LED_MATRIX_LIB_PATH) -lrgbmatrix -lrt -lm -lpthread
-else
-	$(CC) $(CFLAGS) -DSTANDALONE_BUILD board.c -o board $(LDFLAGS)
-endif
+$(CXX) -o board board.c -DSTANDALONE_BUILD -DHAS_LED_MATRIX -I$(LED_MATRIX_PATH) -L$(LED_MATRIX_LIB_PATH) -lrgbmatrix -lrt -lm -lpthread
+
 
 # Clean
 clean:
