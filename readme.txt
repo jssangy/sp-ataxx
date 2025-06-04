@@ -347,3 +347,13 @@ python3 train_octoflip.py
 # Test existing weights
 python3 train_octoflip.py
 # Select option 5
+
+
+# Board compile
+cd rpi-rgb-led-matrix
+make
+cd ..
+g++ -o board board.c -I./rpi-rgb-led-matrix/include -L./rpi-rgb-led-matrix/lib -lrgbmatrix -lm -lpthread
+
+# Board Execution
+sudo ./board --no-hardware-pulse
