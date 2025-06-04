@@ -37,8 +37,11 @@
 #include "opening_book_data.h"
 #endif
 
-#ifdef HAS_NNUE_WEIGHTS  
-#include "nnue_weights_generated.h"
+#if __has_include("nnue_weights_generated.h")
+    #include "nnue_weights_generated.h"
+    #define HAS_NNUE_WEIGHTS 1
+#else
+    #define HAS_NNUE_WEIGHTS 0
 #endif
 
 // ===== GAME CONSTANTS =====

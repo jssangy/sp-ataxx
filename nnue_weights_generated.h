@@ -2,14 +2,22 @@
 // 4-layer structure with batch normalization
 // Leaky ReLU activation
 
-#ifndef NNUE_WEIGHTS_GENERATED_H
-#define NNUE_WEIGHTS_GENERATED_H
 
 #include <stdint.h>
 
-#define NNUE_HIDDEN1_SIZE 128
-#define NNUE_HIDDEN2_SIZE 64
-#define NNUE_HIDDEN3_SIZE 32
+#ifndef NNUE_WEIGHTS_GENERATED_H
+#define NNUE_WEIGHTS_GENERATED_H
+
+// NN 구조 정의
+#define INPUT_SIZE 192
+#define NNUE_HIDDEN1_SIZE 64
+#define NNUE_HIDDEN2_SIZE 32
+#define NNUE_HIDDEN3_SIZE 16
+#define NNUE_OUTPUT_SCALE 1000
+#define NNUE_SCALE 1000
+
+#define HAS_NNUE_WEIGHTS
+
 
 static const int16_t nnue_w1[192][128] = {
     {    -6,     -5,     -2,      0,      9,     -9,      5,      3,      1,      0,      1,      1,     -6,      4,    -13,      2,     -2,     -2,      5,     -3,    -10,     -6,     -5,      9,      3,      2,      7,     -3,     -1,      0,     -8,     16,      2,    -11,      2,      9,      5,     15,      2,      1,      1,     -2,      0,      3,      0,    -12,      0,     10,     -9,      3,     -5,     -8,      2,     -3,      4,     12,     10,      0,     -1,     -3,     -1,     -2,      7,      1,     -3,      0,     -7,      2,     -2,      4,     -2,     -6,     -1,     -1,     12,     10,      9,     -2,      4,     -3,      1,      6,      1,     -2,      9,     -4,     -7,      2,     -1,      8,      2,     -5,     -5,     -4,      8,      5,      7,     -4,      9,     -1,     -7,     11,      1,     -2,     -1,      9,    -11,     -3,      0,      4,      4,      6,     13,     -2,     12,     -5,      8,      2,      1,      1,     -5,      0,      8,     15,      1,     -2,      0,     -2},
@@ -441,39 +449,16 @@ static const int16_t nnue_b3[32] = {
       -245,   -226,    100,   -253,    141,   -251,   -202,   -254
 };
 
-static const int16_t nnue_w4[32][1] = {
-    {     8},
-    {    11},
-    {     7},
-    {   -27},
-    {    11},
-    {    -5},
-    {   -13},
-    {   -10},
-    {     9},
-    {    -9},
-    {     6},
-    {    -8},
-    {    13},
-    {   -15},
-    {     4},
-    {     7},
-    {    16},
-    {    16},
-    {   -18},
-    {    13},
-    {     9},
-    {   -44},
-    {    16},
-    {   -52},
-    {     2},
-    {    -3},
-    {   -24},
-    {     6},
-    {   -16},
-    {     2},
-    {     7},
-    {     1}
+
+static const int16_t nnue_w4[32] = {
+      8,   11,    7,  -27,
+     11,   -5,  -13,  -10,
+      9,   -9,    6,   -8,
+     13,  -15,    4,    7,
+     16,   16,  -18,   13,
+      9,  -44,   16,  -52,
+      2,   -3,  -24,    6,
+    -16,    2,    7,    1
 };
 
 static const int16_t nnue_b4[1] = {
